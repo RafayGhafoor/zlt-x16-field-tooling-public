@@ -1,0 +1,1 @@
+{"success":true,"view":"cells","range":"24h","window_samples":7,"window_start":1792897010,"window_end":1792983410,"series_rsrp_points":1,"timeline_runs":2,"availability_buckets":1,"missing":["cqi","rank","mcs","tx_power"]}

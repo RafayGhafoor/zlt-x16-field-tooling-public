@@ -1,0 +1,26 @@
+# /etc/systemd/system/zlt-atcmd-guard.timer
+#
+# 1-minute cadence for zlt-atcmd-guard.service.
+#
+# Why 1 minute: the failure it repairs is SILENT — AT keeps working, so no panel
+# and no probe notices, while call state, SMS delivery and USSD stop. Every minute
+# of that is a minute of features that appear broken for no reason, and there is
+# no log line anywhere (the vendor thread does not log while looping, and journald
+# does not persist on this box). One healthy run costs one pgrep.
+#
+# OnBootSec=3min only matters if systemd starts this by itself; on this firmware
+# the boot hook inserts `/bin/systemctl start zlt-atcmd-guard.timer` at the top of
+# /etc/initscripts/StartTZApp, because units under /etc/systemd/system get no boot
+# job at all (the /etc volume mounts at ~10.6 s, after systemd has loaded units).
+
+[Unit]
+Description=Timer for the atcmd_daemon health guard
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=1min
+AccuracySec=10s
+Unit=zlt-atcmd-guard.service
+
+[Install]
+WantedBy=timers.target

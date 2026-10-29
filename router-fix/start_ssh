@@ -1,0 +1,72 @@
+#! /bin/sh
+#
+# ZLT X16 - Dropbear SSH startup, mirroring /etc/initscripts/start_telnet
+#
+# Wired exactly like the vendor's telnet service:
+#   TZApp.service -> /etc/initscripts/StartTZApp -> start_ssh start
+#
+# It is gated on mdlcfg SYS_SSH_SWITCH so it can be turned off the same way
+# telnet is (mdlcfg -a SYS_SSH_SWITCH=0 && mdlcfg -c).
+#
+# dropbear itself lives on the writable /data volume because / is a
+# read-only ubifs.
+#
+set +e
+
+# systemd's default PATH does not always contain /sbin, and iptables/mdlcfg
+# live there. Pin a full PATH so this works from TZApp and from systemd alike.
+# NOTE: do NOT add /data/* to PATH here. Anything on the writable volume must
+# never shadow a root binary - that is a PATH-hijack privesc. See audit/RECON.md L3.
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+
+CFG=/bin/mdlcfg    # absolute: never resolved through PATH
+SSH_SW=`$CFG -g SYS_SSH_SWITCH`
+[ -z "$SSH_SW" ] && SSH_SW=1
+
+DROPBEAR=/data/ssh/dropbear
+KEYDIR=/data/ssh
+PIDFILE=/var/run/dropbear.pid
+PORT=22
+
+# TZApp has finished rebuilding the firewall by the time we are called, so the
+# SSH allow rule is (re)asserted here, in front of the port-22 nmap_scan DROP.
+allow_firewall() {
+    iptables -C INPUT -i bridge0 -p tcp --dport "$PORT" -j ACCEPT 2>/dev/null \
+        || iptables -I INPUT 1 -i bridge0 -p tcp --dport "$PORT" -j ACCEPT
+}
+
+start_ssh() {
+    if [ -x "$DROPBEAR" ] && [ -f "$KEYDIR/dropbear_rsa_host_key" ]; then
+        allow_firewall
+        if ! pidof dropbear >/dev/null 2>&1; then
+            "$DROPBEAR" -r "$KEYDIR/dropbear_rsa_host_key" \
+                        -r "$KEYDIR/dropbear_ed25519_host_key" \
+                        -p "$PORT" -P "$PIDFILE"
+        fi
+    fi
+}
+
+stop_ssh() {
+    killall dropbear 2>/dev/null
+    iptables -D INPUT -i bridge0 -p tcp --dport "$PORT" -j ACCEPT 2>/dev/null
+}
+
+case "$1" in
+    start)
+        [ "$SSH_SW" = "1" ] && start_ssh
+        ;;
+    stop)
+        stop_ssh
+        ;;
+    restart)
+        stop_ssh
+        sleep 1
+        [ "$SSH_SW" = "1" ] && start_ssh
+        ;;
+    *)
+        echo "Usage: start_ssh { start | stop | restart }" >&2
+        exit 1
+        ;;
+esac
+exit 0

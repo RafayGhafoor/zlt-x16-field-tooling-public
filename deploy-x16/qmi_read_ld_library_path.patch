@@ -1,0 +1,45 @@
+--- a/qmi_read.sh	2026-10-26 15:37:49
++++ b/qmi_read.sh	2026-10-26 15:37:57
+@@ -139,7 +139,7 @@
+ # (caught by the conductor running this lib on the target, not by a fixture test).
+ # Pass '-' to require only non-empty output.
+ _qm_qmi_raw() {
+-    local out rc marker
++    local out rc marker _qm_old_ld
+     marker=$1; shift
+     if [ -z "$QM_QMI_BIN" ] || [ ! -f "$QM_QMI_BIN" ] || [ ! -x "$QM_QMI_BIN" ]; then
+         return 2
+@@ -163,16 +163,29 @@
+         return 3
+     fi
+     QM_QMI_TMP="${TMPDIR:-/tmp}/.qm_qmi_raw.$$"
++    # LD_LIBRARY_PATH must be EXPORTED, not used as a `VAR=val cmd` prefix.
++    # Measured on the ZLT X16 (2026-10-26): this firmware's `sh` is ash, and an
++    # assignment prefixed to a shell FUNCTION does not reach that function's
++    # children. platform.sh defines qm_timeout as a shell function, so the
++    # prefix form dropped LD_LIBRARY_PATH exactly on the wrapper branch and
++    # qmicli died with "error while loading shared libraries: libqmi-glib.so.5"
++    # - a return of 3 from every call, i.e. "QMI unavailable" forever, even
++    # though the very same qmicli works when run by hand with LD_LIBRARY_PATH.
++    # Export for the duration and restore afterwards so a sourcing caller's
++    # environment is not silently rewritten.
++    _qm_old_ld="${LD_LIBRARY_PATH-}"
++    LD_LIBRARY_PATH="$QM_QMI_LIBDIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
++    export LD_LIBRARY_PATH
+     if command -v qm_timeout >/dev/null 2>&1; then
+-        LD_LIBRARY_PATH="$QM_QMI_LIBDIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+-            qm_timeout "$QM_QMI_TIMEOUT" "$QM_QMI_BIN" -d "$QM_QMI_DEV" "$@" \
++        qm_timeout "$QM_QMI_TIMEOUT" "$QM_QMI_BIN" -d "$QM_QMI_DEV" "$@" \
+             >"$QM_QMI_TMP" 2>/dev/null
+     else
+-        LD_LIBRARY_PATH="$QM_QMI_LIBDIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+-            timeout "$QM_QMI_TIMEOUT" "$QM_QMI_BIN" -d "$QM_QMI_DEV" "$@" \
++        timeout "$QM_QMI_TIMEOUT" "$QM_QMI_BIN" -d "$QM_QMI_DEV" "$@" \
+             >"$QM_QMI_TMP" 2>/dev/null
+     fi
+     rc=$?
++    LD_LIBRARY_PATH="$_qm_old_ld"
++    export LD_LIBRARY_PATH
+     if [ -s "$QM_QMI_TMP" ]; then
+         out=$(cat "$QM_QMI_TMP")
+     else

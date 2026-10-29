@@ -1,0 +1,36 @@
+
+=== TEARDOWN 2026-10-27 01:09:18 ===
+CEER: atcmd_receive: +CEER: No cause information available  OK 
+CGACT: atcmd_receive: +CGACT: 1,0 +CGACT: 2,0 +CGACT: 3,0 +CGACT: 6,0  OK 
+CEREG: atcmd_receive: ERROR 
+CPSI: atcmd_receive: +CEREG: 0,2  OK 
+CCELLCFG: atcmd_receive: +CPSI: NO SERVICE,Online  OK 
+
+=== TEARDOWN 2026-10-27 01:10:28 ===
+CEER: atcmd_receive: +CEER: EMM attach failed  OK 
+CGACT: atcmd_receive: +CGACT: 1,0 +CGACT: 2,1 +CGACT: 3,0 +CGACT: 6,1  OK 
+CEREG: atcmd_receive: +CEREG: 0,1  OK 
+CPSI: atcmd_receive: +CPSI: LTE,Online,410-01,0xD857,34117379,227,EUTRAN-BAND3,1850,5,5,-136,-689,-340,13  OK 
+CCELLCFG: atcmd_receive: +CCELLCFG: 0,0  OK 
+
+=== TEARDOWN 2026-10-27 01:18:00 ===
+CEER: atcmd_receive:NE AT+CEER +CEER: EMM detached  OK 
+CGACT: atcmd_receive: +CGACT: 1,0 +CGACT: 2,0 +CGACT: 3,0 +CGACT: 6,1  OK 
+CEREG: atcmd_receive: +CEREG: 0,2  OK 
+Terminated
+CPSI: 
+CCELLCFG: atcmd_receive: +CCELLCFG: 0,0  OK 
+
+=== TEARDOWN 2026-10-27 01:19:02 ===
+CEER: atcmd_receive: +CEER: Released AT RRC  OK 
+CGACT: atcmd_receive: +CGACT: 1,0 +CGACT: 2,1 +CGACT: 3,0 +CGACT: 6,0  OK 
+CEREG: atcmd_receive: +CEREG: 0,1  OK 
+CPSI: atcmd_receive: +CPSI: LTE,Online,410-01,0xD857,34117379,227,EUTRAN-BAND3,1850,5,5,-113,-723,-409,5  OK 
+CCELLCFG: atcmd_receive: +CCELLCFG: 0,0  OK 
+
+=== TEARDOWN 2026-10-27 01:23:36 ===
+CEER: atcmd_receive: +CEER: EMM detached  OK 
+CGACT: atcmd_receive: +CGACT: 1,0 +CGACT: 2,0 +CGACT: 3,0 +CGACT: 6,1  OK 
+CEREG: atcmd_receive: +CEREG: 0,2  OK 
+CPSI: atcmd_receive: +CPSI: LTE,Online,410-01,0xD857,34117379,227,EUTRAN-BAND3,1850,5,5,-121,-722,-401,7  OK 
+CCELLCFG: atcmd_receive: +CCELLCFG: 0,0  OK 

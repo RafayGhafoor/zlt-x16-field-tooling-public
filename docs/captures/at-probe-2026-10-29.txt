@@ -1,0 +1,57 @@
+at-probe / config-secret read-backs — 2026-10-29
+===============================================
+Device: 192.168.3.1 (zlt-root). All read-only: no NV/config write, no CFUN, no reset.
+Tools: scripts/at-probe/at-probe.sh, /bin/mdlcfg -e. Reference: docs/42, docs/43 §2.3.
+
+
+[1] scripts/at-probe.sh sn
+--------------------------------------------------------------------------------
+  hex: 4D50303632343033353342444230430000...00
+  ascii: <module-sn-redacted>
+  15 bytes of SN then 0x00 padding. This is the item atcmd_daemon's AT+MODULE_SN
+  writes with AT+CNVW=2497,0 (docs/38 §4.1) — read here, never written.
+
+
+[2] scripts/at-probe.sh reboot
+--------------------------------------------------------------------------------
+  +CFAILUREMGRCFG: 1,2,60,1800,5,3,120,1800,5,0,0
+  +CBACKUPRESULT: 1
+  +CRESTORECOUNT: 0
+  field order undocumented; two trigger groups visible (docs/42 §2).
+
+
+[3] scripts/at-probe.sh health
+--------------------------------------------------------------------------------
+  pid: 26280
+  fd 5 -> /dev/smd8  (AT channel)
+  fd 6 -> /dev/smd9  (indication stream)
+  --- vendor log tail (tmpfs) ---
+  2026-10-29 22:23:42 (main,1405): [SMS_MGR] Sunsea_Basic_Init success
+  2026-10-29 22:30:22 (main,1405): [SMS_MGR] Sunsea_Basic_Init success
+  (the 22:30 pair is the atcmd-guard recovery restart; the 17:53 pair is the
+   AT+CFUN=4 / AT+CFUN=1 modem bounce the settings page used to issue)
+  --- /tmp/.sockmsg ---
+  srwxr-xr-x atcmd_daemon / configtools / dialer    (running)
+  -rw-r--r-- antenna_tuner, atind, atrouter, ...    (1-byte placeholder: not running)
+
+
+[4] The config "credential hashes" are plaintext — docs/43 §2.3
+--------------------------------------------------------------------------------
+local:  md5('<wlan-psk-redacted>') = 2c36f5c7c2893aaa      (the value docs/19 V4 documents)
+
+device: mdlcfg -e | sed -n 's/^export USR_WLAN2G_PASSWORD_0=//p' | tr -d '"'
+        -> len=8   md5=2c36f5c7c2893aaa   bytes: D 5 2 B E 0 0 5
+
+  IDENTICAL. So `mdlcfg -e` is "export the config", not "decrypt": the stored PSK
+  is returned byte-for-byte. Same for USR_ODU_WLAN2G_PASSWORD_0.
+
+  Consequence: the credentials in the device-etc/ snapshots are plaintext-
+  equivalent (AGENTS §7 said "hashes" — corrected), and docs/19's V4 finding is
+  exposure of a literal fleet-wide key rather than of a reversible encoding.
+  No util_replace_encode_decode / DES3 hypothesis is needed for these values.
+
+
+[5] Channel health after every batch
+--------------------------------------------------------------------------------
+  /bin/atcmd AT -> atcmd_receive:
+                   OK

@@ -1,0 +1,17 @@
+[Unit]
+Description=QManager Live Traffic sampler (1 Hz from /proc/net/dev)
+After=network.target
+
+[Service]
+Type=simple
+Environment=PATH=/data/qmanager/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# The dashboard reads /live-traffic.json straight from the docroot. It must be a
+# SYMLINK into tmpfs: the 1 Hz write has to stay in RAM, and a real file in the
+# payload would be overwritten by the next deploy.
+ExecStartPre=/bin/sh -c 'ln -sfn /tmp/qmanager_traffic.json /data/qmanager/www/live-traffic.json'
+ExecStart=/data/qmanager/bin/qmanager_traffic.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

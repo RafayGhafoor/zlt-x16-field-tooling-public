@@ -1,0 +1,56 @@
+#!/bin/sh
+# =============================================================================
+# fake-qmicli — deterministic stand-in for the X16's qmicli
+# =============================================================================
+# The shim's only non-AT source for LTE timing advance is
+#
+#     qmicli -d qrtr://3 --nas-get-cell-location-info
+#       ->  ...  LTE Timing Advance: '8' us
+#
+# (docs/captures/recon-distance-mimo.md:106-111). The shim points at this file
+# with QM_QMI_BIN=..., the same override /data/qmanager/lib/qmi/bin/qmicli has
+# on the device, so the conversion can be tested with no QMI stack present.
+#
+# Overridable fixtures:
+#   FAKE_TA_US        the microsecond value the real tool prints (default 8)
+#   FAKE_QMI_RAW      replace the whole answer verbatim. Set-but-empty prints
+#                     nothing at all; unset prints the normal answer.
+#   FAKE_QMI_FAIL     exit non-zero with libqmi's error shape on stderr
+#   FAKE_QMI_HANG     never answer (lets the caller's timeout be exercised)
+#   FAKE_QMI_CALL_LOG append the argv and LD_LIBRARY_PATH the caller used
+# =============================================================================
+
+if [ -n "${FAKE_QMI_CALL_LOG:-}" ]; then
+    printf 'argv: %s\n' "$*" >> "$FAKE_QMI_CALL_LOG"
+    printf 'LD_LIBRARY_PATH: %s\n' "${LD_LIBRARY_PATH:-}" >> "$FAKE_QMI_CALL_LOG"
+fi
+
+# The real tool refuses options it does not have; so does this. A shim that
+# asked for a different QMI operation would fail loudly here instead of being
+# answered by a catch-all.
+case " $* " in
+    *" --nas-get-cell-location-info "*) ;;
+    *)
+        printf 'error: unknown option\n' >&2
+        exit 1
+        ;;
+esac
+
+[ -n "${FAKE_QMI_HANG:-}" ] && { sleep 30; exit 0; }
+
+if [ -n "${FAKE_QMI_RAW+x}" ]; then
+    printf '%s\n' "$FAKE_QMI_RAW"
+    exit 0
+fi
+
+if [ -n "${FAKE_QMI_FAIL:-}" ]; then
+    printf "error: couldn't create client for the 'nas' service: QMI protocol error (3): 'Internal'\n" >&2
+    exit 1
+fi
+
+cat <<EOF
+[qrtr://3] Successfully got cell location info
+	Network selection: registered, home network
+	Cell [0]: Physical Cell ID: '227'  RSRQ: '-16.8' dB  RSRP: '-72.3' dBm  RSSI: '-35.6' dBm
+LTE Timing Advance: '${FAKE_TA_US:-8}' us
+EOF

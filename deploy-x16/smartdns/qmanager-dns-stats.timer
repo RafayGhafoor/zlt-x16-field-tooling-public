@@ -1,0 +1,29 @@
+# /etc/systemd/system/qmanager-dns-stats.timer
+#
+# 5-minute cadence for the DNS stats sampler — the series behind the page's
+# history chart.
+#
+# Why 5 min: the page's shortest range is 1 h, which then has 12 points — enough
+# for a readable rate line without inventing resolution. At 5 min the ring file
+# holds 24 h in 288 rows (~35 kB on tmpfs).
+#
+# Why not 1 min: each sample costs a SIGUSR1 + a syslog scan + a jq, and the rates
+# it feeds change on the scale of a browsing session. Raise it only with a measured
+# fork-rate before/after.
+#
+# OnBootSec=2min counts from boot; the timer is started by zlt-smartdns.sh from the
+# boot hook, so the first sample lands ~80 s after that and the panel has two
+# points (one rate) well before anyone opens the page.
+
+[Unit]
+Description=Timer for the QManager DNS stats sampler
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+RandomizedDelaySec=30
+AccuracySec=30s
+Unit=qmanager-dns-stats.service
+
+[Install]
+WantedBy=timers.target

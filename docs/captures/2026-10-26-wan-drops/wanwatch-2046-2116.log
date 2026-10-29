@@ -1,0 +1,29 @@
+20:46:18 CELL  <start> -> EUTRAN-BAND3/1850/PCI227  route=1 reachable=1
+20:46:18 NET   reachable=1 route=1 cell=EUTRAN-BAND3/1850/PCI227
+20:47:40 CELL  EUTRAN-BAND3/1850/PCI227 -> //PCI  route=1 reachable=1
+20:47:48 CELL  //PCI -> EUTRAN-BAND3/1850/PCI227  route=1 reachable=1
+20:54:38 NET   reachable=0 route=0 cell=EUTRAN-BAND3/1850/PCI227
+20:54:38 ROUTE default-route MISSING (0)
+20:54:46 ROUTE default-route MISSING (0)
+20:54:54 CELL  EUTRAN-BAND3/1850/PCI227 -> EUTRAN-BAND1/250/PCI162  route=0 reachable=0
+20:54:54 ROUTE default-route MISSING (0)
+20:55:02 ROUTE default-route MISSING (0)
+20:55:11 ROUTE default-route MISSING (0)
+20:55:19 NET   reachable=1 route=1 cell=EUTRAN-BAND1/250/PCI162
+20:55:28 NET   reachable=0 route=1 cell=EUTRAN-BAND1/250/PCI162
+21:00:31 NET   reachable=1 route=1 cell=EUTRAN-BAND1/250/PCI162
+21:00:49 NET   reachable=0 route=1 cell=EUTRAN-BAND1/250/PCI162
+21:01:00 NET   reachable=1 route=1 cell=EUTRAN-BAND1/250/PCI162
+21:01:08 NET   reachable=0 route=1 cell=EUTRAN-BAND1/250/PCI162
+21:01:18 NET   reachable=1 route=1 cell=EUTRAN-BAND1/250/PCI162
+21:01:35 NET   reachable=0 route=1 cell=EUTRAN-BAND1/250/PCI162
+21:01:45 NET   reachable=1 route=1 cell=EUTRAN-BAND1/250/PCI162
+21:03:33 NET   reachable=0 route=0 cell=EUTRAN-BAND1/250/PCI162
+21:03:33 ROUTE default-route MISSING (0)
+21:03:41 ROUTE default-route MISSING (0)
+21:03:49 CELL  EUTRAN-BAND1/250/PCI162 -> EUTRAN-BAND3/1850/PCI227  route=0 reachable=0
+21:03:49 ROUTE default-route MISSING (0)
+21:03:57 ROUTE default-route MISSING (0)
+21:04:05 ROUTE default-route MISSING (0)
+21:04:13 ROUTE default-route MISSING (0)
+21:04:21 NET   reachable=1 route=1 cell=EUTRAN-BAND3/1850/PCI227

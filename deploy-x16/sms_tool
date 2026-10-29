@@ -1,0 +1,118 @@
+#!/bin/sh
+# =============================================================================
+# sms_tool — ZLT X16 (SIMCom SIM8260E) shim over the vendor AT broker
+# =============================================================================
+# The upstream binary (sms_tool.bin, obsy/sms_tool) opens an AT tty directly.
+# This device has none: AT is IPC through atcmd_daemon, so the binary cannot
+# work here at all ("No response from modem" — measured).
+#
+# What this shim implements, and why not more:
+#
+#   status            REAL. AT+CPMS reports storage (measured: 17 used / 23 total).
+#   at '<cmd>'        REAL. Pass-through to /bin/atcmd.
+#   delete <idx...>   REAL. AT+CMGD=<idx>.
+#   recv / recv -j    NOT POSSIBLE on this transport. Every read path answers
+#                     +CMS ERROR on this firmware:
+#                       AT+CMGF=1 ; AT+CMGL="ALL"   -> empty
+#                       AT+CMGL="REC UNREAD"        -> +CMS ERROR
+#                       AT+CMGR=<1..20>             -> +CMS ERROR
+#                       AT+CMGF=0 ; AT+CMGR=<n>     -> +CMS ERROR
+#                     The messages exist (CPMS counts 17) but the vendor's AT
+#                     daemon does not expose SMS storage; the vendor UI reads it
+#                     through a different bus application (APP_ID_TZ_SMS_MGR).
+#                     Returning an empty list is honest and fast; the previous
+#                     wrapper BLOCKED for ~25 s per call, which froze the whole
+#                     SMS page.
+#   send              NOT POSSIBLE for the same reason (AT+CMGS needs the
+#                     interactive "> " prompt, which atcmd does not provide).
+#
+# Output formats match what QManager's cellular/sms.sh expects:
+#   status -> "Storage type: ME, used: 17, total: 23"
+#   recv -j -> {"msg":[]}
+# =============================================================================
+
+ATCMD="${ATC:-/bin/atcmd}"
+TIMEOUT_BIN=""
+for t in /usr/bin/timeout /bin/timeout; do [ -x "$t" ] && { TIMEOUT_BIN=$t; break; }; done
+
+MEM="ME"
+JSON=0
+ACTION=""
+ARGS=""
+
+# ---- argument parsing ------------------------------------------------------
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -d)  shift; [ $# -gt 0 ] && shift ;;   # device is meaningless here
+        -s)  shift; [ $# -gt 0 ] && MEM=$1; shift ;;
+        -j)  JSON=1; shift ;;
+        recv|send|delete|status|at) ACTION=$1; shift ;;
+        *)   ARGS="$ARGS $1"; shift ;;
+    esac
+done
+[ -n "$ACTION" ] || ACTION="recv"
+ARGS=$(printf '%s' "$ARGS" | sed 's/^ *//')
+
+at() {
+    if [ -n "$TIMEOUT_BIN" ]; then
+        "$TIMEOUT_BIN" 12 "$ATCMD" "$1" 2>&1
+    else
+        "$ATCMD" "$1" 2>&1
+    fi
+}
+
+case "$ACTION" in
+    status)
+        _r=$(at "AT+CPMS=\"$MEM\",\"$MEM\",\"$MEM\"")
+        _line=$(printf '%s\n' "$_r" | grep '^+CPMS:' | tr -d '\r' | head -1)
+        if [ -z "$_line" ]; then
+            printf 'Storage type: %s, used: 0, total: 0\n' "$MEM"
+            exit 0
+        fi
+        _csv=${_line#+CPMS: }
+        # +CPMS: "ME",17,23,"ME",17,23,"ME",17,23   (quoted) or 17,23,... (bare)
+        _used=$(printf '%s' "$_csv" | awk -F, '{ for(i=1;i<=NF;i++){ gsub(/"/,"",$i); if ($i ~ /^[0-9]+$/){ print $i; exit } } }')
+        _total=$(printf '%s' "$_csv" | awk -F, '{ n=0; for(i=1;i<=NF;i++){ gsub(/"/,"",$i); if ($i ~ /^[0-9]+$/){ n++; if(n==2){ print $i; exit } } } }')
+        printf 'Storage type: %s, used: %s, total: %s\n' "$MEM" "${_used:-0}" "${_total:-0}"
+        exit 0
+        ;;
+
+    recv)
+        # Not readable through the AT broker (see header). Answer fast and empty.
+        if [ "$JSON" = "1" ]; then
+            printf '{"msg":[]}\n'
+        fi
+        exit 0
+        ;;
+
+    delete)
+        [ -n "$ARGS" ] || { [ "$JSON" = "1" ] && printf '{"ok":false}\n'; exit 1; }
+        _ok=0
+        for _i in $ARGS; do
+            case "$_i" in all|ALL) at 'AT+CMGD=1,4' >/dev/null 2>&1 && _ok=1 ;;
+                *[!0-9]*) ;;
+                *) at "AT+CMGD=$_i" >/dev/null 2>&1 && _ok=1 ;;
+            esac
+        done
+        [ "$JSON" = "1" ] && printf '{"ok":%s}\n' "$([ $_ok = 1 ] && echo true || echo false)"
+        [ $_ok = 1 ] || exit 1
+        exit 0
+        ;;
+
+    send)
+        # Interactive prompt unavailable on this transport.
+        [ "$JSON" = "1" ] && printf '{"ok":false,"error":"send_not_supported"}\n'
+        echo "sms_tool: send is not supported on this transport (no AT tty)" >&2
+        exit 1
+        ;;
+
+    at)
+        at "$ARGS"
+        exit 0
+        ;;
+
+    *)
+        echo "sms_tool: unknown action '$ACTION'" >&2
+        exit 1
+        ;;
+esac

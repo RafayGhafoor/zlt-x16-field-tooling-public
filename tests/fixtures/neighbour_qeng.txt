@@ -1,0 +1,12 @@
++QENG:"neighbourcell intra","LTE",1312,256,-71,-939,-669,0,0,0,0,0,0
++QENG:"neighbourcell intra","LTE",1312,318,-155,-1012,-753,0,0,0,0,0,0
++QENG:"neighbourcell intra","LTE",1312,255,-172,-1039,-768,0,0,0,0,0,0
++QENG:"neighbourcell inter","LTE",150,502,-77,-988,-742,0,0,0,0,0
++QENG:"neighbourcell inter","LTE",150,209,-200,-1103,-805,0,0,0,0,0
++QENG:"neighbourcell inter","LTE",150,294,-139,-1044,-803,0,0,0,0,0
++QENG:"neighbourcell inter","LTE",3626,469,-84,-935,-712,0,0,0,0,0
++QENG:"neighbourcell inter","LTE",3626,474,-129,-971,-748,0,0,0,0,0
++QENG:"neighbourcell inter","LTE",3626,381,-115,-1079,-831,0,0,0,0,0
++QENG:"neighbourcell inter","LTE",3626,255,-149,-996,-758,0,0,0,0,0
++QENG:"neighbourcell inter","LTE",3626,408,-188,-1073,-791,0,0,0,0,0
++QENG:"neighbourcell inter","LTE",3626,209,-160,-1007,-758,0,0,0,0,0

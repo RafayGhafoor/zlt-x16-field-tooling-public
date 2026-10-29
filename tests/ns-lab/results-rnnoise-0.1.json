@@ -1,0 +1,169 @@
+[
+  {
+    "name": "speech (own room tone)",
+    "delayMs": 10,
+    "narrow": {
+      "dSiSdr": -105.54,
+      "noiseDb": -0.15
+    },
+    "dSiSdr": -104.8,
+    "noiseDb": -0.19,
+    "speechDb": 0.01,
+    "dropoutsMs": 0,
+    "noiseFrames": 2617,
+    "speechFrames": 1883,
+    "vad": 0.442,
+    "rtf": 0.0097
+  },
+  {
+    "name": "speech2 (own room tone)",
+    "delayMs": 10,
+    "narrow": {
+      "dSiSdr": -108.73,
+      "noiseDb": -9.84
+    },
+    "dSiSdr": -105.36,
+    "noiseDb": -2.45,
+    "speechDb": -0.16,
+    "dropoutsMs": 580,
+    "noiseFrames": 1665,
+    "speechFrames": 2835,
+    "vad": 0.538,
+    "rtf": 0.0097
+  },
+  {
+    "name": "speech+fan @5dB",
+    "delayMs": 10,
+    "narrow": {
+      "dSiSdr": 7.07,
+      "noiseDb": -21.27
+    },
+    "dSiSdr": 5.24,
+    "noiseDb": -20.09,
+    "speechDb": -2.02,
+    "dropoutsMs": 260,
+    "noiseFrames": 2617,
+    "speechFrames": 1883,
+    "rtf": 0.0097
+  },
+  {
+    "name": "speech+traffic @5dB",
+    "delayMs": 10,
+    "narrow": {
+      "dSiSdr": 7.12,
+      "noiseDb": -17.58
+    },
+    "dSiSdr": 5.26,
+    "noiseDb": -18.37,
+    "speechDb": -1.85,
+    "dropoutsMs": 140,
+    "noiseFrames": 2617,
+    "speechFrames": 1883,
+    "rtf": 0.0098
+  },
+  {
+    "name": "speech+cafe @5dB",
+    "delayMs": 10,
+    "narrow": {
+      "dSiSdr": 4.05,
+      "noiseDb": -9.87
+    },
+    "dSiSdr": 3.58,
+    "noiseDb": -10.78,
+    "speechDb": -1.88,
+    "dropoutsMs": 160,
+    "noiseFrames": 2617,
+    "speechFrames": 1883,
+    "rtf": 0.0096
+  },
+  {
+    "name": "speech+fan @10dB",
+    "delayMs": 10,
+    "narrow": {
+      "dSiSdr": 5.22,
+      "noiseDb": -17.53
+    },
+    "dSiSdr": 3.21,
+    "noiseDb": -15.56,
+    "speechDb": -0.86,
+    "dropoutsMs": 120,
+    "noiseFrames": 2617,
+    "speechFrames": 1883,
+    "rtf": 0.0097
+  },
+  {
+    "name": "speech+traffic @10dB",
+    "delayMs": 10,
+    "narrow": {
+      "dSiSdr": 5.05,
+      "noiseDb": -13.91
+    },
+    "dSiSdr": 3.35,
+    "noiseDb": -14.01,
+    "speechDb": -0.75,
+    "dropoutsMs": 100,
+    "noiseFrames": 2617,
+    "speechFrames": 1883,
+    "rtf": 0.0097
+  },
+  {
+    "name": "speech+cafe @10dB",
+    "delayMs": 10,
+    "narrow": {
+      "dSiSdr": 3.94,
+      "noiseDb": -10.24
+    },
+    "dSiSdr": 2.34,
+    "noiseDb": -10.91,
+    "speechDb": -0.83,
+    "dropoutsMs": 100,
+    "noiseFrames": 2617,
+    "speechFrames": 1883,
+    "rtf": 0.0096
+  },
+  {
+    "name": "speech+fan @15dB",
+    "delayMs": 10,
+    "narrow": {
+      "dSiSdr": 2.56,
+      "noiseDb": -12.95
+    },
+    "dSiSdr": 0.54,
+    "noiseDb": -10.73,
+    "speechDb": -0.39,
+    "dropoutsMs": 100,
+    "noiseFrames": 2617,
+    "speechFrames": 1883,
+    "rtf": 0.0098
+  },
+  {
+    "name": "speech+traffic @15dB",
+    "delayMs": 10,
+    "narrow": {
+      "dSiSdr": 2,
+      "noiseDb": -10.19
+    },
+    "dSiSdr": 0.58,
+    "noiseDb": -9.62,
+    "speechDb": -0.33,
+    "dropoutsMs": 80,
+    "noiseFrames": 2617,
+    "speechFrames": 1883,
+    "rtf": 0.0098
+  },
+  {
+    "name": "speech+cafe @15dB",
+    "delayMs": 10,
+    "narrow": {
+      "dSiSdr": 2.29,
+      "noiseDb": -9.25
+    },
+    "dSiSdr": 0.07,
+    "noiseDb": -9.17,
+    "speechDb": -0.37,
+    "dropoutsMs": 60,
+    "noiseFrames": 2617,
+    "speechFrames": 1883,
+    "rtf": 0.0096
+  }
+]

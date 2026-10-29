@@ -1,0 +1,8 @@
+# >>> ZLT-IPACM-HOOK
+# First script that runs from the writable /etc volume (~12 s): bring up the
+# IPACM supervisor here so ipacm is running before the dialer assigns the WAN
+# address -- it only learns the WAN IP from the rtnetlink RTM_NEWADDR event.
+# See router-fix/ipacm/README.md.
+/etc/initscripts/zlt-ipacm.sh boot >> /data/log/zlt-ipacm-boot.log 2>&1
+systemd-run --on-active=90 --unit=zlt-ipacm-reassert --collect /etc/initscripts/zlt-ipacm.sh reassert >/dev/null 2>&1
+# <<< ZLT-IPACM-HOOK

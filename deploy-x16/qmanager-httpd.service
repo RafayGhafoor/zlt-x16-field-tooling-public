@@ -1,0 +1,22 @@
+[Unit]
+Description=QManager web UI (busybox httpd on :8080)
+# Do not use Requires= — a vendor TZApp restart must not take the UI down.
+After=TZApp.service network.target
+Wants=network.target
+# systemd-journald is present here, so stdout is fine; the script logs nothing
+# on success anyway.
+
+[Service]
+Type=forking
+PIDFile=/run/qmanager-httpd.pid
+Environment=PATH=/data/qmanager/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=QM_PORT=8080
+ExecStart=/data/qmanager/bin/qm_serve.sh start
+ExecStop=/data/qmanager/bin/qm_serve.sh stop
+Restart=on-failure
+RestartSec=5
+StartLimitBurst=20
+# CGI runs as root by design (writes /etc/qmanager, talks to atcmd_daemon).
+
+[Install]
+WantedBy=multi-user.target

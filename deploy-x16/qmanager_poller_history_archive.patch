@@ -1,0 +1,31 @@
+--- a/qmanager_poller
++++ b/qmanager_poller
+@@ -1933,7 +1933,9 @@
+     nr_avail=null
+     if [ -n "${nr_pci:-}" ] || [ -n "${nr_rsrp:-}" ]; then
+         nr_avail=1
+-    elif [ "$at" != "{}" ]; then
++    elif [ "$at" != "{}" ] || [ "${network_type:-}" = "LTE" ]; then
++        # The serving-cell poller already identified LTE. This is a measured
++        # no-NR sample even on SIMCom builds without an optional PHY daemon.
+         nr_avail=0
+     fi
+ 
+@@ -2003,10 +2005,13 @@
+     fi
+     phy_json="$snap"
+ 
+-    # Nothing read at all: publish the nulls, but do not archive a row of them —
+-    # a minute-by-minute record of "the modem said nothing" is not a trend, and
+-    # 30 days of it would bury the data on either side.
+-    if [ "$md" = "{}" ] && [ "$at" = "{}" ]; then
++    # Do not write an all-null row. On LTE-only SIMCom platforms ubus/modemd is
++    # absent and optional QNWCFG PHY queries have no data, but Tier 1 still has
++    # real serving-cell measurements/identity in `ctx`; retain those records so
++    # the History tab has a truthful signal and cell timeline instead of an
++    # empty archive. The helper rejects a context-only row if it has no actual
++    # radio measurement or identity field.
++    if ! qm_phy_archive_has_source "$md" "$at" "$ctx"; then
+         return 1
+     fi
+ 

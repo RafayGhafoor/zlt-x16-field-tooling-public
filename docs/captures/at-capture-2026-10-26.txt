@@ -1,0 +1,120 @@
+########## AT+CGMM
+atcmd_receive:
+SIMCOM_SIM8260E
+
+OK
+########## AT+CGMR
+atcmd_receive:
++CGMR: 2212B01X62M88A-LGA_CUS_TZ
+
+OK
+########## ATI
+atcmd_receive:
+Manufacturer: SIMCOM INCORPORATED
+Model: SIMCOM_SIM8260E
+Revision: V1.0.01
+IMEI: <imei-redacted>
++GCAP: +CGSM
+
+OK
+########## AT+CGSN
+atcmd_receive:
+<imei-redacted>
+
+OK
+########## AT+CIMI
+atcmd_receive:
+<imsi-redacted>
+
+OK
+########## AT+CICCID
+atcmd_receive:
++ICCID: 89410037251217291419
+
+OK
+########## AT+CNUM
+atcmd_receive:
+OK
+########## AT+CPIN?
+atcmd_receive:
++CPIN: READY
+
+OK
+########## AT+CSQ
+atcmd_receive:
++CSQ: 24,99
+
+OK
+########## AT+CESQ
+atcmd_receive:
+ERROR
+########## AT+CGATT?
+atcmd_receive:
++CGATT: 1
+
+OK
+########## AT+COPS?
+atcmd_receive:
++COPS: 0,0,"Onic",7
+
+OK
+########## AT+CEREG?
+atcmd_receive:
++CEREG: 0,1
+
+OK
+########## AT+C5GREG?
+atcmd_receive:
++C5GREG: 0,0
+
+OK
+########## AT+CGACT?
+atcmd_receive:
++CGACT: 1,1
++CGACT: 2,0
++CGACT: 3,0
++CGACT: 4,0
++CGACT: 5,0
++CGACT: 6,1
+
+OK
+########## AT+CGDCONT?
+atcmd_receive:
++CGDCONT: 1,"IP","GPRS.SWISSCOM.CH","0.0.0.0",0,0,0,0,,,,,,,,,"",,,,0
++CGDCONT: 2,"IP","HOS","0.0.0.0",0,0,0,0,,,,,,,,,"",,,,0
++CGDCONT: 3,"IPV6","IMS","0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0",0,0,0,0,,,,,,,,,"",,,,0
++CGDCONT: 4,"IPV4V6","SOS","0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0",0,0,0,1,,,,,,,,,"",,,,0
++CGDCONT: 5,"IP","event.swisscom.ch","0.0.0.0",0,0,0,0,,,,,,,,,"",,,,0
++CGDCONT: 6,"IP","Ufone.internet","0.0.0.0",0,0,0,0,,,,,,,,,"",,,,0
+
+OK
+########## AT+CGCONTRDP=6
+atcmd_receive:
++CGCONTRDP: 6,6,"Ufone.internet",10.220.84.156,,39.39.39.39,182.176.100.89
+
+OK
+########## AT+CGCONTRDP=1
+atcmd_receive:
++CGCONTRDP: 1,5,"GPRS.SWISSCOM.CH",10.198.195.55,,39.39.39.39,182.176.100.89
+
+OK
+########## AT+CPSI?
+atcmd_receive:
++CPSI: LTE,Online,410-03,0x29DD,212150373,256,EUTRAN-BAND3,1312,5,5,-83,-943,-667,11
+
+OK
+########## AT+CSYSSEL?
+atcmd_receive:
+ERROR
+########## AT+CCAINFO?
+atcmd_receive:
++CCAINFO: "PCC",EUTRAN_BAND3,1312,100,256,-94,-8,-65,150
++CCAINFO: "SCC",EUTRAN_BAND1,150,50,502,2,-108,-10,-81,134,2,2,8
++CCAINFO: "SCC",EUTRAN_BAND5,2450,50,469,1,-91,-11,-71,131,0
+
+OK
+########## AT+CNWINFO?
+atcmd_receive:
++CNWINFO: LTE,41003212150373,0xCA528,25,1,64QAM,16QAM,15,4,16
+
+OK

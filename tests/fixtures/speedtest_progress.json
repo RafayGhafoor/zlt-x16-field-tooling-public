@@ -1,0 +1,13 @@
+{
+  "type": "download",
+  "timestamp": "2026-10-26T01:50:07Z",
+  "download": {
+    "bandwidth": 10384290,
+    "bytes": 136683560,
+    "elapsed": 13740,
+    "latency": {
+      "iqm": 249.874
+    },
+    "progress": 0.916
+  }
+}

@@ -1,0 +1,132 @@
+### LIGHTTPD CONF ###
+server.modules              = (
+                                "mod_auth",
+                                "mod_cgi",
+server.document-root         = "/WEBSERVER/www/"
+server.tag = "server"
+                server.document-root        = "/WEBSERVER/www/"
+                server.errorlog             = "/data/www/lighttpd.error.log"
+                server.port                 = 80
+                server.max-connections      = 1
+                auth.debug                  = 2
+                auth.backend                = "plain"
+                auth.backend.plain.userfile = "/data/www/lighttpd.user"
+$HTTP["url"] =~ "/cgi-bin/|/ecne/" {
+   cgi.assign = ( "" => "" )
+  server.range-requests = "disable"
+static-file.exclude-extensions = ( ".php", ".pl", ".fcgi" )
+server.chroot              = "/"
+server.username            = "www-data"
+server.groupname           = "www-data"
+ server.name = "mdm9625.com"
+ server.document-root = "/WEBSERVER/www/"
+ server.errorlog = "/data/www/serror.log"
+ server.max-connections      = 1
+                auth.debug                  = 2
+                auth.backend                = "plain"
+### /data/www ###
+total 4
+drwxrwxr-x    2 www-data www-data       312 Apr 10  2023 .
+drwxrwxr-x   38 root     root          4864 Oct 26 04:10 ..
+-rwxrwx---    1 www-data www-data       112 Apr 10  2023 lighttpd.user
+-rwxrwx---    1 www-data www-data         0 Jan  1  1970 session_token.txt
+### /etc/qmanager (WW) ###
+total 28
+drwxrwxrwx    4 root     root           904 Oct 26 03:36 .
+drwxr-xr-x   52 root     root          9240 Oct 26 03:49 ..
+-rw-r--r--    1 root     root             2 Oct 26 02:55 .modem_crash_count_last
+-rw-------    1 root     root           143 Oct 26 02:55 auth.json
+-rw-r--r--    1 root     root            21 Oct 26 03:02 known_iccids
+-rw-r--r--    1 root     root            36 Oct 26 02:55 last_boot_id
+drwxr-xr-x    2 root     root           160 Oct 26 02:55 profiles
+-rw-r--r--    1 root     root          1089 Oct 26 03:07 qmanager.conf
+drwxr-xr-x    2 root     root           160 Oct 26 03:36 scenarios
+-rw-r--r--    1 root     root           148 Oct 26 03:02 sim_registry.json
+-rw-r--r--    1 root     root             0 Oct 26 03:02 sim_registry.lock
+-rw-r--r--    1 root     root           449 Oct 26 03:36 tower_lock.json
+### QM_SERVE ###
+#!/bin/sh
+# =============================================================================
+# qm_serve.sh — run the QManager web UI on port 8080 (ZLT X16)
+# =============================================================================
+# Adapted from QManager's deploy/qm_serve.sh (GreenPacket). Port 8080 is
+# deliberate: :80 and :443 are the vendor UI (/bin/mini_httpd), which is left
+# untouched. busybox 1.31 httpd supports CGI natively and is already on the
+# device, so no packages are installed.
+#
+# httpd runs as ROOT (no -u): CGI helpers write /etc/qmanager and must reach
+# the modem through /bin/atcmd. /data/qmanager/bin/sudo is a passthrough shim.
+#
+# Usage: qm_serve.sh {start|stop|restart|status}
+# =============================================================================
+set -u
+
+QM_ROOT=/data/qmanager
+PORT="${QM_PORT:-8080}"
+PIDFILE=/run/qmanager-httpd.pid
+DOCROOT="$QM_ROOT/www"
+
+PATH="$QM_ROOT/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+export PATH
+
+check_root() {
+    [ -d "$DOCROOT" ] || { echo "missing docroot: $DOCROOT" >&2; exit 1; }
+    [ -d "$DOCROOT/cgi-bin/quecmanager" ] || {
+        echo "missing CGI tree under $DOCROOT/cgi-bin" >&2; exit 1; }
+}
+
+is_running() {
+    [ -f "$PIDFILE" ] || return 1
+    pid=$(cat "$PIDFILE" 2>/dev/null)
+    [ -n "$pid" ] || return 1
+    kill -0 "$pid" 2>/dev/null || return 1
+    return 0
+}
+
+# busybox httpd writes no pidfile; find it by the exact argv we passed.
+# The pattern is assembled at runtime so this script cannot match itself.
+find_pids() {
+    pattern="httpd -p $PORT -h $DOCROOT"
+    ps w 2>/dev/null | grep -F "$pattern" | grep -v grep | awk '{print $1}'
+}
+
+do_stop() {
+    if is_running; then
+        pid=$(cat "$PIDFILE" 2>/dev/null)
+        kill "$pid" 2>/dev/null
+        sleep 1
+### TR069 ###
+export USR_TR069_SERVER_IP="183.6.18.43"
+export USR_TR069_PERIODIC_SW="1"
+export USR_TR069_ACS_USERNAME_RULE_WITH_BLANK="0"
+export USR_TR069_PERIODIC_INTERVAL="86400"
+export USR_TR069_ACS_USERNAME="acsadmin"
+export SYS_TR069_ACS_PWD_RULE="0"
+export USR_TR069_SERVER_PORT="12345"
+export USR_TR069_ACS_PWD="N@wras7547"
+### SECRETS in mdlcfg ###
+export SYS_ODU_WIFI_PWD_RULE="3"
+export USR_APN_PWD_1=""
+export USR_APN_PWD_2=""
+export USR_APN_PWD_3=""
+export USR_APN_PWD_4=""
+export SYS_SUPER_LOGIN_PWD="<super-admin-pw-redacted>"
+export USR_TR069_CPE_PWD=""
+export USR_ODU_WLAN2G_PASSWORD_0="<wlan-psk-redacted>"
+export USR_ODU_WLAN2G_PASSWORD_1="<wlan-psk-redacted>"
+export USR_ODU_WLAN2G_PASSWORD_2="<wlan-psk-redacted>"
+export USR_ODU_WLAN2G_PASSWORD_3="<wlan-psk-redacted>"
+export SYS_IP_PASSTHROUGH_NAT="0"
+export USR_WAN_WLAN5G_CLIENT_PASSWORD=""
+export SYS_WEB_USER_PWD_TAIL=""
+export USR_MQTT_PASSWORD=""
+export SYS_WEB_SENIOR_PWD_RULE="1"
+export SYS_ODU_WIFI_PWD_HEAD=""
+export USR_L2TP_AUTH_PASS=""
+export USR_L2TP_LNS_CHALLENGE_PASS=""
+export SYS_IP_PASSTHROUGH_MODE="0"
+export SYS_WEB_USER_PWD_XLEN="12"
+export USR_FOTA_PASSWD=""
+export SYS_WEB_SENIOR_PWD_HEAD=""
+export USR_L2TP_LAC_CHALLENGE_PASS=""
+export USR_WAN_WLAN2G_CLIENT_PASSWORD=""

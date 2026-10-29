@@ -1,0 +1,21 @@
+[Unit]
+Description=QManager Ping Daemon (internet reachability + latency)
+After=network.target
+StartLimitIntervalSec=3600
+StartLimitBurst=20
+
+[Service]
+Type=simple
+# jq lives in the payload, not in systemd's default PATH.
+Environment=PATH=/data/qmanager/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# The resolver LAN clients actually query. dnsmasq holds bridge0's :53.
+# 127.0.0.1 does not work: dnsmasq runs with except-interface=lo.
+Environment=DNS_LAN_RESOLVER=192.168.3.1
+ExecStart=/data/qmanager/bin/qmanager_ping
+EnvironmentFile=-/etc/qmanager.env
+TimeoutStopSec=10
+Restart=always
+RestartSec=10s
+
+[Install]
+WantedBy=multi-user.target

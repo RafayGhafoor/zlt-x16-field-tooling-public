@@ -1,0 +1,12 @@
+[Unit]
+Description=ZLT X16 cellular WAN MTU workaround
+After=TZApp.service
+Requires=TZApp.service
+
+[Service]
+Type=oneshot
+ExecStart=/data/zlt-wan-fix/zlt-wan-fix.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

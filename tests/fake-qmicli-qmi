@@ -1,0 +1,152 @@
+#!/bin/sh
+# =============================================================================
+# tests/fake-qmicli-qmi — a qmicli stand-in for tests/unit_qmi_read.sh
+# =============================================================================
+# qmi_read.sh takes its binary, private libdir, QRTR node, per-call timeout and
+# availability TTL from QM_QMI_* variables, so the whole reader runs on a
+# workstation with this script in QM_QMI_BIN: no modem, no libqmi, no QRTR node,
+# no AT port. The name ends in -qmi on purpose — it is only ever reached through
+# QM_QMI_BIN and must not be confused with tests/fake-qmicli.
+#
+# Answers are never invented. Each one is either a real capture from
+# tests/fixtures/ or the captured answer cited at the printf that emits it.
+#
+# Environment (all optional):
+#   FAKE_QMI_CELL_FIXTURE    answer printed for --nas-get-cell-location-info
+#   FAKE_QMI_SIGNAL_FIXTURE  answer printed for --nas-get-signal-info
+#   FAKE_QMI_LOG             append the qmicli option of every call, one per line
+#   FAKE_QMI_LD_RECORD       append the LD_LIBRARY_PATH this process received
+#   FAKE_QMI_MODE            ok | empty | exit1 | nomarker | garbage
+#   FAKE_QMI_FAIL_ON         apply a rule only when the args contain this text
+#   FAKE_QMI_FAIL_MODE       the rule to apply then (same values as FAKE_QMI_MODE)
+#   FAKE_QMI_FLIP_FILE       while this file exists, behave as `ok`
+#
+# Modes:
+#   ok        the real answer for the call (success marker + payload), exit 0
+#   empty     exit 0 and print nothing — the half-answered call that qmicli's
+#             per-call "Successfully got ..." marker exists to reject
+#   exit1     exit 1, nothing on stdout — a call that failed
+#   nomarker  exit 0 with output that carries no success marker
+#   garbage   exit 0 with the call's success marker plus junk, no row to parse
+#
+# FAKE_QMI_FAIL_ON is what makes the availability probe and the payload call
+# distinguishable: qmi_read.sh probes with --dms-get-operating-mode before every
+# reader, so a fake that fails *everything* can only ever exercise the probe.
+# =============================================================================
+set -u
+
+# The option is qmicli's last argument; -d <node> comes before it.
+opt=""
+for arg in "$@"; do
+    case $arg in
+        --*) opt=$arg ;;
+    esac
+done
+
+if [ -n "${FAKE_QMI_LOG:-}" ]; then
+    printf '%s\n' "${opt:-<no-option>}" >> "$FAKE_QMI_LOG"
+fi
+# What the CHILD actually received. qmi_read.sh must put its private libdir in
+# this process's environment (not in a `VAR=val cmd` prefix that ash drops at a
+# shell-function boundary), or libqmi-glib.so.5 cannot be loaded.
+if [ -n "${FAKE_QMI_LD_RECORD:-}" ]; then
+    printf '%s\n' "${LD_LIBRARY_PATH-<unset>}" >> "$FAKE_QMI_LD_RECORD"
+fi
+
+# The marker qmi_read.sh requires for THIS call. qmicli's first line is not
+# uniform (qmi_read.sh:120-134 lists the five captured spellings).
+case $opt in
+    --dms-get-operating-mode)     marker='Operating mode retrieved' ;;
+    --nas-get-cell-location-info) marker='Successfully got cell location info' ;;
+    --nas-get-signal-info)        marker='Successfully got signal info' ;;
+    --nas-get-serving-system)     marker='Successfully got serving system' ;;
+    --nas-get-rf-band-info)       marker='Successfully got RF band info' ;;
+    *)                            marker='' ;;
+esac
+
+mode=${FAKE_QMI_MODE:-ok}
+if [ -n "${FAKE_QMI_FAIL_ON:-}" ]; then
+    case "$*" in
+        *"$FAKE_QMI_FAIL_ON"*) mode="${FAKE_QMI_FAIL_MODE:-$mode}" ;;
+    esac
+fi
+if [ -n "${FAKE_QMI_FLIP_FILE:-}" ] && [ -f "$FAKE_QMI_FLIP_FILE" ]; then
+    mode=ok
+fi
+
+case $mode in
+    ok)
+        case $opt in
+            --dms-get-operating-mode)
+                # libqmi 1.34 shape; qmi_read.sh's availability marker is the
+                # second line, the first is informational.
+                printf '[qrtr://3] Successfully got operating mode\n'
+                printf 'Operating mode retrieved:\n'
+                printf "\tMode: 'online'\n"
+                printf "\tHW restricted: 'no'\n"
+                ;;
+            --nas-get-cell-location-info)
+                if [ -z "${FAKE_QMI_CELL_FIXTURE:-}" ] || [ ! -f "${FAKE_QMI_CELL_FIXTURE}" ]; then
+                    echo "fake-qmicli-qmi: FAKE_QMI_CELL_FIXTURE unset or missing" >&2
+                    exit 1
+                fi
+                cat "$FAKE_QMI_CELL_FIXTURE"
+                ;;
+            --nas-get-signal-info)
+                if [ -z "${FAKE_QMI_SIGNAL_FIXTURE:-}" ] || [ ! -f "${FAKE_QMI_SIGNAL_FIXTURE}" ]; then
+                    echo "fake-qmicli-qmi: FAKE_QMI_SIGNAL_FIXTURE unset or missing" >&2
+                    exit 1
+                fi
+                cat "$FAKE_QMI_SIGNAL_FIXTURE"
+                ;;
+            --nas-get-serving-system)
+                # Captured answer (QManager tree,
+                # .orchestra/scratch/stub/captures/serving-system.txt). It is
+                # inlined rather than shipped in tests/fixtures/ because it is
+                # the only capture of this call and only qm_qmi_signal's
+                # "registered"/"carrier" half reads it.
+                printf '[qrtr://3] Successfully got serving system info\n'
+                printf "\tRegistration state: 'registered'\n"
+                printf "\tCS: 'attached'\n"
+                printf "\tPS: 'attached'\n"
+                printf "\tSelected network: 'automatic'\n"
+                printf "\tRadio interfaces: '1'\n"
+                printf "\t\t[0]: 'lte'\n"
+                printf "\tRoaming status: 'off'\n"
+                printf "\tCurrent PLMN:\n"
+                printf "\t\tMCC: '410'\n"
+                printf "\t\tMNC: '01'\n"
+                printf "\t\tDescription: 'Jazz'\n"
+                printf "\tRoaming indicators: '1'\n"
+                printf "\t\t[0]: 'off'\n"
+                printf "\tData service capabilities: '1'\n"
+                printf "\t\t[0]: 'lte'\n"
+                ;;
+            *)
+                echo "fake-qmicli-qmi: unhandled qmicli option ${opt:-<none>}" >&2
+                exit 1
+                ;;
+        esac
+        ;;
+    empty)
+        exit 0
+        ;;
+    exit1)
+        echo 'error: cannot read from the QRTR node' >&2
+        exit 1
+        ;;
+    nomarker)
+        printf 'an answer that carries no success marker\n'
+        ;;
+    garbage)
+        if [ -n "$marker" ]; then
+            printf '%s\n' "$marker"
+        fi
+        printf 'garbage: no rows to parse follow this line\n'
+        ;;
+    *)
+        echo "fake-qmicli-qmi: unknown FAKE_QMI_MODE [$mode]" >&2
+        exit 1
+        ;;
+esac
+exit 0

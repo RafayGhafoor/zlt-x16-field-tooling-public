@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ZLT X16 — call terminal</title>
+<style>
+  :root {
+    --bg: #0e1116; --panel: #161b22; --panel-2: #1c232c; --line: #262d38;
+    --txt: #e6edf3; --dim: #8b949e; --accent: #2f81f7; --ok: #3fb950;
+    --warn: #d29922; --bad: #f85149; --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--txt);
+    font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    -webkit-text-size-adjust: 100%;
+  }
+  header {
+    display: flex; align-items: center; gap: 12px; padding: 14px 16px;
+    border-bottom: 1px solid var(--line); background: var(--panel);
+    position: sticky; top: 0; z-index: 5;
+  }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; letter-spacing: .2px; }
+  header .hint { color: var(--dim); font-size: 12px; margin-left: auto; }
+  main { max-width: 760px; margin: 0 auto; padding: 16px; display: grid; gap: 14px; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+  section > h2 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .8px;
+    color: var(--dim); margin: 0 0 12px; font-weight: 600;
+  }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  button {
+    font: inherit; font-weight: 550; color: var(--txt); background: var(--panel-2);
+    border: 1px solid var(--line); border-radius: 8px; padding: 11px 16px;
+    cursor: pointer; transition: .12s background, .12s border-color;
+  }
+  button:hover:not(:disabled) { background: #232c37; border-color: #33404f; }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary:hover:not(:disabled) { background: #4a92f8; }
+  button.danger { background: #3d1d1f; border-color: #63272b; color: #ffb4ae; }
+  button.danger:hover:not(:disabled) { background: #4d2326; }
+  input[type=text], input[type=tel] {
+    font: inherit; font-family: var(--mono); color: var(--txt); background: #0b0f14;
+    border: 1px solid var(--line); border-radius: 8px; padding: 11px 12px; width: 100%;
+  }
+  input:focus { outline: 2px solid rgba(47,129,247,.45); outline-offset: 1px; }
+  .grow { flex: 1 1 220px; }
+  .status { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
+  .stat { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; }
+  .stat .k { font-size: 10px; text-transform: uppercase; letter-spacing: .6px; color: var(--dim); }
+  .stat .v { font-family: var(--mono); font-size: 13px; margin-top: 3px; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; background: var(--dim); }
+  .dot.on { background: var(--ok); box-shadow: 0 0 6px rgba(63,185,80,.7); }
+  .dot.warn { background: var(--warn); }
+  .dot.bad { background: var(--bad); }
+  .meter { height: 7px; background: #0b0f14; border-radius: 4px; overflow: hidden; border: 1px solid var(--line); }
+  .meter > i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #238636, #3fb950); transition: width .08s linear; }
+  .meter.dl > i { background: linear-gradient(90deg, #1f6feb, #58a6ff); }
+  .meterlabel { display: flex; justify-content: space-between; font-size: 11px; color: var(--dim); margin: 8px 0 4px; }
+  .keys { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; max-width: 260px; }
+  .keys button { font-family: var(--mono); font-size: 17px; padding: 13px 0; }
+  label.slider { display: grid; gap: 4px; font-size: 12px; color: var(--dim); }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  #log {
+    font-family: var(--mono); font-size: 11.5px; color: #9fb0c1; background: #0b0f14;
+    border: 1px solid var(--line); border-radius: 8px; padding: 10px; height: 132px;
+    overflow-y: auto; white-space: pre-wrap; word-break: break-word; margin: 0;
+  }
+  .note { color: var(--dim); font-size: 12px; margin: 10px 0 0; }
+  audio { width: 100%; margin-top: 4px; }
+  .badge { font-family: var(--mono); font-size: 11px; padding: 3px 7px; border-radius: 999px; border: 1px solid var(--line); color: var(--dim); }
+  .badge.good { color: #7ee787; border-color: #1f6f37; background: #10251a; }
+  .badge.bad { color: #ffb4ae; border-color: #63272b; background: #2a1415; }
+</style>
+</head>
+<body>
+<header>
+  <h1>ZLT X16 — call terminal</h1>
+  <span class="hint" id="hint">HTTPS · self-signed</span>
+</header>
+
+<main>
+  <section>
+    <h2>Audio link</h2>
+    <div class="row">
+      <button id="connect" class="primary">Connect audio</button>
+      <button id="disconnect" disabled>Disconnect</button>
+      <span class="badge" id="iceBadge">idle</span>
+    </div>
+    <div class="meterlabel"><span>Browser → device (your mic, uplink)</span><span id="ulLabel">0.0 s · 0 pkt</span></div>
+    <div class="meter"><i id="ulMeter"></i></div>
+    <div class="meterlabel"><span>Device → browser (call downlink)</span><span id="dlLabel">—</span></div>
+    <div class="meter dl"><i id="dlMeter"></i></div>
+    <audio id="callsAudio" autoplay playsinline></audio>
+    <p class="note">The page needs microphone permission, and the certificate is generated on the device, so accept the browser warning once.</p>
+  </section>
+
+  <section>
+    <h2>Call</h2>
+    <div class="row">
+      <div class="grow"><input id="number" type="tel" inputmode="tel" placeholder="phone number" autocomplete="off"></div>
+      <button id="dial" class="primary">Call</button>
+      <button id="hangup" class="danger">Hang up</button>
+    </div>
+    <div class="status" style="margin-top:12px">
+      <div class="stat"><div class="k">Call state</div><div class="v"><span id="callDot" class="dot"></span><span id="callState">idle</span></div></div>
+      <div class="stat"><div class="k">PCM tap</div><div class="v"><span id="tapDot" class="dot"></span><span id="tapState">closed</span></div></div>
+      <div class="stat"><div class="k">Downlink</div><div class="v" id="dlCount">0</div></div>
+      <div class="stat"><div class="k">Uplink</div><div class="v" id="ulCount">0</div></div>
+    </div>
+    <p class="note" id="tapNote"></p>
+  </section>
+
+  <section>
+    <h2>DTMF</h2>
+    <div class="keys" id="keys"></div>
+    <p class="note">Digits go out as <code>AT+VTS</code> on the modem. The raw response is shown in the log.</p>
+  </section>
+
+  <section>
+    <h2>Levels</h2>
+    <div class="row">
+      <label class="slider grow">Uplink gain <input id="ulGain" type="range" min="0.2" max="6" step="0.1" value="1"></label>
+      <label class="slider grow">Downlink gain <input id="dlGain" type="range" min="0.2" max="4" step="0.1" value="1"></label>
+    </div>
+  </section>
+
+  <section>
+    <h2>Log</h2>
+    <pre id="log"></pre>
+  </section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const logBox = $('log');
+function log(msg) {
+  const t = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+  logBox.textContent += `${t}  ${msg}\n`;
+  const lines = logBox.textContent.split('\n');
+  if (lines.length > 200) logBox.textContent = lines.slice(-200).join('\n');
+  logBox.scrollTop = logBox.scrollHeight;
+}
+
+let pc = null, micStream = null, ac = null;
+let ulAnalyser = null, dlAnalyser = null, meterTimer = null;
+
+async function connect() {
+  $('connect').disabled = true;
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        channelCount: 1, sampleRate: 8000,
+        echoCancellation: true, noiseSuppression: true, autoGainControl: true,
+      }
+    });
+
+    pc = new RTCPeerConnection({ iceServers: [], bundlePolicy: 'max-bundle' });
+
+    const transceiver = pc.addTransceiver(micStream.getAudioTracks()[0], { direction: 'sendrecv' });
+    try {
+      const caps = RTCRtpReceiver.getCapabilities('audio');
+      const pcmu = caps.codecs.filter(c => c.mimeType === 'audio/PCMU');
+      if (pcmu.length) transceiver.setCodecPreferences(pcmu);
+    } catch (e) { log('codec preference unsupported: ' + e.message); }
+
+    pc.ontrack = ev => {
+      $('callsAudio').srcObject = ev.streams[0];
+      attachMeters();
+      log('remote audio track received (' + ev.track.codec?.mimeType + ')');
+    };
+    pc.oniceconnectionstatechange = () => {
+      const s = pc.iceConnectionState;
+      const badge = $('iceBadge');
+      badge.textContent = s;
+      badge.className = 'badge ' + (s === 'connected' || s === 'completed' ? 'good' : (s === 'failed' || s === 'disconnected' ? 'bad' : ''));
+      log('ICE ' + s);
+    };
+    pc.onconnectionstatechange = () => log('peer ' + pc.connectionState);
+
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+
+    const res = await fetch('/api/offer', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(pc.localDescription),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    await pc.setRemoteDescription(await res.json());
+    log('audio link established');
+
+    $('disconnect').disabled = false;
+    startPolling();
+  } catch (e) {
+    log('connect failed: ' + e.message);
+    $('connect').disabled = false;
+    teardown();
+  }
+}
+
+function attachMeters() {
+  ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+  if (ac.state === 'suspended') ac.resume();
+  const mk = stream => ac.createMediaStreamSource(stream);
+  if (micStream) ulAnalyser = ac.createAnalyser(), ulAnalyser.fftSize = 512, mk(micStream).connect(ulAnalyser);
+  const remote = $('callsAudio').srcObject;
+  if (remote) dlAnalyser = ac.createAnalyser(), dlAnalyser.fftSize = 512, mk(remote).connect(dlAnalyser);
+}
+
+function teardown() {
+  if (meterTimer) { clearInterval(meterTimer); meterTimer = null; }
+  if (micStream) micStream.getTracks().forEach(t => t.stop());
+  micStream = null;
+  if (pc) { pc.close(); pc = null; }
+  $('callsAudio').srcObject = null;
+  $('iceBadge').textContent = 'idle';
+  $('iceBadge').className = 'badge';
+  $('disconnect').disabled = true;
+  $('connect').disabled = false;
+  $('ulMeter').style.width = '0%';
+  $('dlMeter').style.width = '0%';
+}
+
+function peak(analyser, buf) {
+  if (!analyser) return 0;
+  analyser.getByteTimeDomainData(buf);
+  let max = 0;
+  for (let i = 0; i < buf.length; i++) {
+    const v = Math.abs(buf[i] - 128) / 128;
+    if (v > max) max = v;
+  }
+  return max;
+}
+
+async function poll() {
+  try {
+    const s = await (await fetch('/api/state')).json();
+    $('callState').textContent = s.call_label;
+    $('callDot').className = 'dot ' + (s.call === '0' ? 'on' : (s.call === '' ? '' : 'warn'));
+    $('tapState').textContent = s.tap ? 'open ' + s.tap_age_s.toFixed(0) + 's' : 'closed';
+    $('tapDot').className = 'dot ' + (s.tap ? 'on' : '');
+    $('dlCount').textContent = s.dl_frames.toLocaleString();
+    $('ulCount').textContent = s.ul_frames.toLocaleString();
+    $('dlLabel').textContent = s.dl_age_ms < 0 ? 'no packets yet'
+      : `${(s.dl_age_ms / 1000).toFixed(1)} s ago · ${s.dl_frames} pkt`;
+    $('ulLabel').textContent = `${(s.ul_bytes / 16000).toFixed(1)} s · ${s.ul_frames} pkt`;
+    $('tapNote').textContent = s.tap_last_exit
+      ? `Last tap exit: ${s.tap_last_exit} (${s.tap_restarts} restart(s)). The tap is reopened automatically while a call is answered.`
+      : 'The tap opens when a call is answered and closes when it ends.';
+    if (s.ul_gain !== undefined) {
+      if (document.activeElement !== $('ulGain')) $('ulGain').value = s.ul_gain;
+      if (document.activeElement !== $('dlGain')) $('dlGain').value = s.dl_gain;
+    }
+  } catch (e) { /* server restarting */ }
+}
+
+function startPolling() {
+  if (meterTimer) return;
+  const ulBuf = new Uint8Array(512), dlBuf = new Uint8Array(512);
+  meterTimer = setInterval(() => {
+    $('ulMeter').style.width = (peak(ulAnalyser, ulBuf) * 100).toFixed(0) + '%';
+    $('dlMeter').style.width = (peak(dlAnalyser, dlBuf) * 100).toFixed(0) + '%';
+    poll();
+  }, 120);
+}
+
+$('connect').onclick = connect;
+$('disconnect').onclick = () => { log('disconnected by user'); teardown(); };
+
+$('dial').onclick = async () => {
+  const number = $('number').value.trim();
+  if (!number) return;
+  localStorage.x16number = number;
+  $('dial').disabled = true;
+  try {
+    const r = await fetch('/api/call', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ number }),
+    });
+    const j = await r.json();
+    log(j.ok ? `dial ${number}: ${j.at}` : `dial failed: ${j.error} (${j.at})`);
+  } catch (e) { log('dial error: ' + e.message); }
+  setTimeout(() => { $('dial').disabled = false; }, 1500);
+};
+
+$('hangup').onclick = async () => {
+  const j = await (await fetch('/api/hangup', { method: 'POST' })).json();
+  log('hangup: ' + j.at);
+};
+
+for (const d of ['1','2','3','4','5','6','7','8','9','*','0','#']) {
+  const b = document.createElement('button');
+  b.textContent = d;
+  b.onclick = async () => {
+    const j = await (await fetch('/api/dtmf?digit=' + encodeURIComponent(d), { method: 'POST' })).json();
+    log(`DTMF ${d}: ${j.at || (j.ok ? 'ok' : 'rejected')}`);
+  };
+  $('keys').appendChild(b);
+}
+
+let gainTimer = null;
+function pushGain() {
+  clearTimeout(gainTimer);
+  gainTimer = setTimeout(async () => {
+    await fetch('/api/gain', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ up: +$('ulGain').value, down: +$('dlGain').value }),
+    });
+  }, 150);
+}
+$('ulGain').oninput = pushGain;
+$('dlGain').oninput = pushGain;
+
+$('number').value = localStorage.x16number || '';
+document.addEventListener('keydown', e => {
+  if (e.target.matches('input')) return;
+  if ('0123456789*#'.includes(e.key) && pc) document.querySelector(`#keys button:nth-child(${'123456789*0#'.indexOf(e.key) + 1})`)?.click();
+});
+
+log('ready — press "Connect audio" first, then dial');
+poll();
+</script>
+</body>
+</html>

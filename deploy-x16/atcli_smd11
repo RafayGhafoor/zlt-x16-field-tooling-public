@@ -1,0 +1,1832 @@
+#!/bin/sh
+# =============================================================================
+# atcli_smd11 — ZLT X16 (SIMCom SIM8260E) AT transport shim
+# =============================================================================
+# Contract required by QManager's `qcmd`:
+#   * one AT command in $1 (may be a `;`-compound chain)
+#   * raw modem response text on stdout
+#   * ALWAYS exit 0 — qcmd does its own OK / ERROR / +CME / +CMS error parsing
+#
+# TWO jobs:
+#
+# 1. TRANSPORT. The SIM8260E is on-die with the SDX65 CPU; there is no modem
+#    tty. The vendor serialises all AT traffic through `atcmd_daemon`, and
+#    /bin/atcmd is the vendor's own client for that bus. Using it means we
+#    inherit the vendor's locking and never interleave with /bin/dialer's 1 Hz
+#    AT poll — the dialer REBOOTS THE ROUTER after repeated AT failures, so
+#    interleaving is not an option. /dev/at_mdm0 and /dev/smd* are deliberately
+#    never opened here.
+#
+#    /bin/atcmd output shape:
+#        atcmd_receive:
+#        <payload...>
+#
+#        OK
+#    The leading echo line is stripped; OK/ERROR is passed through untouched
+#    because qcmd needs it.
+#
+#    TWO REPLIES ARE NOT MODEM TEXT and are handled before any parser sees them
+#    (decompiled in docs/38 §2 and §3, `atcmd_daemon` + `/bin/atcmd`):
+#        <path>\r\nATCMD_DAEMON_FILE_OK\r\n   the answer did not fit the daemon's
+#            buffer, so ALL of it was written to <path>; read the file
+#        Atcmd_daemon get At_Response Error   the daemon's own failure literal
+#    Passing either up would be read as a 2-line modem answer: a neighbour scan
+#    would come back as "no cells" instead of "the answer is in a file", and the
+#    error literal would look like a success with an unparseable body.
+#
+#    THIS SHIM DOES NOT SERIALISE, AND MUST NOT: /bin/atcmd binds a FIXED
+#    reply socket (/tmp/.tmpsock/atcmd) before it talks to the daemon, so two
+#    clients that overlap can each receive the OTHER's payload. Measured on the
+#    device while writing the A/B harness for this file: `atcli_smd11 AT+CGMR`
+#    answered with a `+CPSI: LTE,...` line, because qmanager_poller was
+#    mid-request. Every real caller goes through qcmd, which holds
+#    /tmp/qmanager_at.lock around the call; a caller that skips that lock will
+#    occasionally get a valid-looking answer to a command it never sent. The
+#    snapshot cache below does not change this — it only reduces how often the
+#    modem is touched at all.
+#
+# 2. DIALECT. QManager speaks Quectel. This firmware does not implement the
+#    Quectel serving-cell QENG layout, QCAINFO / QRSRP / QCCID / QUIMSLOT /
+#    QSIMSTAT / CVERSION / QTEMP. It DOES implement the native
+#    AT+QENG="neighbourcell" query; pass that exact query through unchanged.
+#    Rather than rewrite 87 CGIs and a 300-line awk parser, each recognised
+#    Quectel command is translated here and its response is re-emitted in the
+#    exact Quectel shape the existing parsers expect:
+#
+#        AT+QENG="servingcell"   <- AT+CPSI?          (+QENG line synthesised)
+#        AT+QCAINFO              <- AT+CCAINFO?       (+QCAINFO lines synthesised)
+#        AT+QCCID                <- AT+CICCID          (prefix rewritten)
+#        AT+CVERSION             <- ATI / AT+CGMR      (Quectel banner synthesised)
+#        AT+QTEMP                <- thermal sysfs, or the modem's own error
+#        AT+QNWPREFCFG="policy_band" <- AT+CSYSSEL="lte_band"/"nr5g_band"/...
+#        AT+QNWPREFCFG="lte_band"|... <- AT+CSYSSEL (the key itself, read or write)
+#        AT+QUIMSLOT?            -> single-slot answer (this device has one slot)
+#        AT+QSIMSTAT?            -> inserted=1 (no hot-swap status is exposed)
+#        AT+QRSRP/QSINR          -> AT+CRSRP? / AT+CSINR? (four chains per RAT)
+#        AT+QRSRQ                -> four nulls: this modem has no per-chain RSRQ
+#        AT+QCAINFO=0|1          -> OK (reports are always on-demand here)
+#        AT+QNWCFG, AT+QGETCAPABILITY, AT+QMAP* -> empty OK (unsupported)
+#        AT+QNWLOCK="common/4g" -> AT+CCELLCFG (one LTE PCI + EARFCN only)
+#
+# Everything not in that table is passed through verbatim, so the port keeps
+# working the day a command becomes available.
+#
+# Measurements behind the field mappings (captured on this unit, see
+# docs/captures/at-capture-2026-10-26.txt):
+#   +CPSI: LTE,Online,410-03,0x29DD,212150373,256,EUTRAN-BAND3,1312,5,5,-80,-947,-675,15
+#   +CCAINFO: "PCC",EUTRAN_BAND3,1312,100,256,-94,-8,-65,150
+#   +CCAINFO: "SCC",EUTRAN_BAND1,150,50,502,2,-108,-10,-81,134,2,2,8
+#   +CNWINFO: LTE,41003212150373,0xCA528,25,1,64QAM,16QAM,15,4,16
+# CPSI scalars are x10 (RSRP -947 = -94.7 dBm); Quectel reports whole dBm.
+# =============================================================================
+
+ATCMD="${ATC:-/bin/atcmd}"
+
+# --peek: answer from the snapshot cache only, never from the modem.
+#
+# Why this mode exists: the AT lock is the expensive part of a UI AT call, not
+# the modem. Measured on the X16 2026-11-05, the same cache-fresh
+# `AT+QENG="servingcell"` costs 40 ms p50 with no lock and 980 ms p50 behind the
+# poller's cycle (max 6.2 s), because flock() has no fairness and the poller
+# re-acquires ~22 times per cycle. A peek never touches the modem, so there is
+# nothing for /bin/atcmd's fixed reply socket to race and no lock is needed.
+#
+# Contract: exit 0 with a complete answer, or exit 3 having printed nothing a
+# caller may use (a compound may have printed an earlier part before the stale
+# one was found, so callers MUST check the exit code first). Never writes the
+# cache, never writes the blacklist, never opens ATCMD.
+PEEK=0
+case "${1:-}" in
+    --peek) PEEK=1 ; shift ;;
+esac
+
+[ $# -ge 1 ] || exit 0
+[ -n "$1" ] || exit 0
+
+# ---------------------------------------------------------------------------
+# transport: run one AT command through the vendor broker, strip the echo line
+# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# SAFETY: which commands may reach the vendor's AT daemon at all.
+# ---------------------------------------------------------------------------
+# Measured the hard way on 2026-10-26: `atcmd_daemon` serves ONE request at a
+# time and has NO timeout of its own. One command that the modem never answers
+# leaves its client queued forever, and every later client — including the
+# vendor dialer's own — blocks behind it. That took the WAN down until the
+# daemon was restarted.
+#
+# Therefore: an allowlist, not a passthrough. Every command below has been
+# verified on this unit (docs/captures/at-capture-2026-10-26.txt). Anything
+# else answers ERROR immediately and never touches the daemon.
+#
+# Deliberately NOT allowed: AT+CRSM (FPLMN), AT+QMBNCFG (MBN), AT+EGMR write,
+# AT+QPOWD, any AT+CMGS (interactive prompt), AT+COPS=1/2/4, AT+CFUN=1,1.
+#
+# AT+SIMEI= (identity write) is allowed ONLY as an exact 15-digit value -- it is
+# the one permitted command here that changes persistent modem state, so the
+# shape is pinned in the pattern rather than checked after the fact. The caller
+# (cellular/imei.sh) validates Luhn and completeness first; this is the second
+# line, so a hand-typed qcmd cannot reach the modem with anything else.
+# Quectel serving-cell AT+QENG / AT+QCAINFO / AT+QSCAN and the rest of the set,
+# except the verified native AT+QENG="neighbourcell" query; AT+COPS=? (long
+# scan), any AT+CMGS (interactive prompt).
+# ---------------------------------------------------------------------------
+is_safe_cmd() {
+    # AT+CFUN? is deliberately ABSENT: the QUERY hangs on this firmware (killed at
+    # 20 s with no reply — AGENTS.md §6, docs/42 §3), and because qcmd holds the
+    # global AT lock around this call, the hang is paid by every other consumer.
+    # The WRITE forms (AT+CFUN=0/1/4) below are fine and are how QManager bounces
+    # the modem. Read the functional mode from +CPSI/+CEREG or QMI instead.
+    case "$1" in
+        'AT+CPSI?'|'AT+CCAINFO?'|'AT+QENG="neighbourcell"'|'AT+CCELLCFG?'|'AT+CCELLCFG=0'|'AT+CCELLCFG=1,'*|'AT+CRSRP?'|'AT+CSINR?'|'AT+CRSSI?'|'AT+CSQ'|'ATI'|'AT+CGMM'|'AT+CGMR'|'AT+CGSN'|'AT+CIMI'| \
+        'AT+CNUM'|'AT+CPIN?'|'AT+CGATT?'|'AT+COPS?'|'AT+CEREG?'|'AT+C5GREG?'| \
+        'AT+CGACT?'|'AT+CGDCONT?'|'AT+CGCONTRDP'|'AT+CGCONTRDP='*|'AT+CNMP?'| \
+        'AT+CICCID'|'AT+CSYSSEL='*|'AT+CPMS?'|'AT+CPMS='*|'AT+CMGF='*|'AT+CMGD='*| \
+        'AT+CPAS'|'AT+CGPADDR'*|'AT+CGEREP='*|'AT+CRESET'|'AT+CPOF'| \
+        'AT+CNMP='*|'AT+CFUN=0'|'AT+CFUN=1'|'AT+CFUN=4'| \
+        'AT+SIMEI='[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9])
+            return 0 ;;
+        *)  return 1 ;;
+    esac
+}
+
+# Absolute paths first (systemd units start with a minimal PATH); then fall
+# back to PATH lookup so the unit tests can run on a developer machine
+# (`gtimeout` on macOS).
+TIMEOUT_BIN=""
+for _t in /usr/bin/timeout /bin/timeout; do
+    [ -x "$_t" ] && { TIMEOUT_BIN=$_t; break; }
+done
+if [ -z "$TIMEOUT_BIN" ]; then
+    for _t in timeout gtimeout; do
+        _p=$(command -v "$_t" 2>/dev/null) && { TIMEOUT_BIN=$_p; break; }
+    done
+fi
+AT_TIMEOUT="${QM_AT_TIMEOUT:-6}"
+BLACKLIST="${QM_AT_BLACKLIST:-/tmp/qmanager_at_blacklist}"
+
+# ---------------------------------------------------------------------------
+# FORK-FREE TEXT HELPERS
+# ---------------------------------------------------------------------------
+# Why this section exists. Measured on the X16 itself (1-core A7, 2026-11-05,
+# 30 calls per figure, every call serialised on qcmd's /tmp/qmanager_at.lock):
+#
+#                                       before    after
+#     AT+CGMM, no cache               60-63 ms   44-51 ms
+#     AT+CGMM, cache                      -       18 ms
+#     AT+CSQ,  no cache               74-75 ms   47-59 ms
+#     tier-1 chain (4 cmds, no cache) 208-214 ms 101-114 ms
+#     tier-1 chain, burst               292-309 ms  45 ms
+#
+# The tier-1 chain makes three modem calls, so ~208/3 = 70 ms per command was
+# OUR OWN OVERHEAD: a bare `/bin/atcmd <cmd>` — daemon handoff, write to smd8,
+# modem round trip, reply back through the socket — is 30 ms on this box. The
+# four pipelines in the old at_raw (`printf | sed` and `printf | tr`) plus the
+# `_x=$(at_raw ...)` capture accounted for the other 40.
+#
+# A fork is not cheap here: `sh -c :` x20 measured 370 ms, i.e. 18.5 ms per
+# fork+exec on an A7 that is also running /bin/dialer's 1 Hz AT poll, busybox
+# httpd, qmanager_poller and the WebRTC audio pump. So the cost belongs here,
+# not in the transport — and NOT in /dev/smd8, which atcmd_daemon owns.
+#
+# Every helper below is a byte-for-byte replacement of the sed/tr/awk/grep
+# one-liner named above it, using shell expansion and `case` patterns only.
+# Verification: `tests/unit_atcli_*.sh` (which assert the unchanged output
+# against captured device responses), plus a 44-command A/B of this shim against
+# the previously deployed one run against the live SIM8260E — 37 byte-identical,
+# 6 differing only in the live signal readings, 1 differing only in the trailing
+# field count the modem itself varies. No behavioural difference was found.
+# ---------------------------------------------------------------------------
+
+NL='
+'
+
+# at_strip_echo <raw>  ->  _STRIPPED
+# Replaces: sed '1{/^atcmd_receive:[[:space:]]*$/d;}'
+# The vendor client prints `atcmd_receive:` and then the payload, which begins
+# on the next line. Only that echo line is dropped, and only when nothing but
+# whitespace follows it on the line (a payload that shared the line is kept).
+# Every newline below is `"$NL"`: a raw backslash-newline inside ${...} is a
+# line CONTINUATION and would silently delete the pattern instead of matching it.
+at_strip_echo() {
+    case "$1" in
+        atcmd_receive:*) ;;
+        *) _STRIPPED=$1 ; return 0 ;;
+    esac
+    _se_rest=${1#atcmd_receive:}
+    case "$_se_rest" in
+        *"$NL"*) _se_head=${_se_rest%%"$NL"*} ;;
+        *)        _se_head=$_se_rest ;;
+    esac
+    while :; do
+        case "$_se_head" in
+            *[[:space:]]) _se_head=${_se_head%?} ;;
+            *) break ;;
+        esac
+    done
+    if [ -n "$_se_head" ]; then
+        _STRIPPED=$1                      # payload shared the echo line
+        return 0
+    fi
+    case "$_se_rest" in
+        *"$NL"*) _STRIPPED=${_se_rest#*"$NL"} ;;
+        *)        _STRIPPED='' ;;
+    esac
+}
+
+# at_is_blank <text>  ->  rc 0 when it holds nothing but whitespace# Replaces: case "$(printf '%s' "$1" | tr -d ' \t\r\n')" in '')
+# A reply that is only the echo line means the daemon swallowed the answer, and
+# a silent empty string has twice been read as "modem fine, no data".
+at_is_blank() {
+    _ib=$1
+    while :; do
+        case "$_ib" in
+            '') return 0 ;;
+            [[:space:]]*) _ib=${_ib#?} ;;
+            *) return 1 ;;
+        esac
+    done
+}
+
+# at_is_daemon_error <text>  ->  rc 0 when the daemon says it failed
+# atcmdd_node_handler writes this literal into the reply buffer when
+# atcmdd_send_atcmd() returns non-zero (docs/38 §2). It is not a modem answer; a
+# parser would read it as one unknown line and the caller would see a "success"
+# carrying no data.
+at_is_daemon_error() {
+    case "$1" in
+        *'Atcmd_daemon get At_Response Error'*) return 0 ;;
+    esac
+    return 1
+}
+
+# at_is_spill <text>  ->  rc 0 when the reply carries the file-transfer marker
+# Kept separate from at_spill_path on purpose: a marker whose path cannot be
+# parsed must still NOT be passed up as modem text (see at_fetch).
+at_is_spill() {
+    case "$1" in
+        *ATCMD_DAEMON_FILE_OK*) return 0 ;;
+    esac
+    return 1
+}
+
+# at_spill_path <text>  ->  _SPILL_PATH when the marker carries an absolute path
+# A reply that does not fit its buffer is NOT truncated: `safe_read` writes ALL of
+# it to a fixed path and hands the caller "<path>\r\nATCMD_DAEMON_FILE_OK\r\n"
+# (docs/38 §3). The sentinel carries the path, so it is parsed rather than assumed
+# — the path is fixed today, but nothing in the reply says it has to stay so.
+at_spill_path() {
+    at_is_spill "$1" || return 1
+    _sp=${1%%ATCMD_DAEMON_FILE_OK*}
+    while :; do
+        case "$_sp" in
+            *[[:space:]]) _sp=${_sp%?} ;;
+            *) break ;;
+        esac
+    done
+    case "$_sp" in
+        /*) _SPILL_PATH=$_sp ; return 0 ;;
+        *)  return 1 ;;
+    esac
+}
+
+# at_spill_read <path>  ->  _AT_OUT, or ERROR. Never prints.
+# Builtins only: this is the one branch that has to touch the disk, and the AT
+# path is measured (docs/34) — a `head`/`cat` fork here would show up in every
+# caller that ever asks for a big answer. Bounded because the file is a FIXED
+# path shared by every caller, and nothing in this shim consumes a megabyte of
+# AT+CLAC (which is blacklisted anyway).
+AT_SPILL_MAX=${AT_SPILL_MAX:-262144}
+at_spill_read() {
+    _AT_OUT=''
+    [ -r "$1" ] || { _AT_OUT='ERROR' ; return 0 ; }
+    _sr='' ; _sn=0
+    while IFS= read -r _sl || [ -n "$_sl" ]; do
+        _sr=$_sr$_sl$NL
+        _sn=$((_sn + ${#_sl} + 1))
+        [ "$_sn" -ge "$AT_SPILL_MAX" ] && break
+    done < "$1"
+    if [ -z "$_sr" ]; then
+        _AT_OUT='ERROR'
+    else
+        _AT_OUT=$_sr
+    fi
+    return 0
+}
+
+# at_unquote <text>  ->  _UNQUOTED      (every '"' removed)
+# Replaces: tr -d '"'
+at_unquote() {
+    _uq=$1
+    _UNQUOTED=''
+    while :; do
+        case "$_uq" in
+            *'"'*) _UNQUOTED=$_UNQUOTED${_uq%%\"*} ; _uq=${_uq#*\"} ;;
+            *) _UNQUOTED=$_UNQUOTED$_uq ; return 0 ;;
+        esac
+    done
+}
+
+# at_rtrim <text>  ->  _TRIMMED          (trailing whitespace, incl. the CR)
+# Replaces: tr -d '\r'  on a whole line, and `tr -d '\r '` on a field.
+at_rtrim() {
+    _rt=$1
+    while :; do
+        case "$_rt" in
+            *[[:space:]]) _rt=${_rt%?} ;;
+            *) break ;;
+        esac
+    done
+    _TRIMMED=$_rt
+}
+
+# at_line_value <text> <prefix>  ->  _LINE_VALUE  (rc 1 when no such line)
+# Replaces: sed -n 's/^<prefix> *//p' | tr -d '\r' | head -1
+# That pipeline cost three forks (~55 ms) on every settings-page read. The
+# returned value is trimmed on both sides, which is what every `sed s/^... *//`
+# pattern it replaces did (` *` after the prefix, CR at the end).
+at_line_value() {
+    _lv_want=$2
+    _LINE_VALUE=''
+    set -f
+    _lv_oldifs=$IFS
+    IFS=$NL
+    for _lv in $1; do
+        case "$_lv" in
+            "$_lv_want"*) ;;
+            *) continue ;;
+        esac
+        _lv=${_lv#"$_lv_want"}
+        while :; do
+            case "$_lv" in
+                [[:space:]]*) _lv=${_lv#?} ;;
+                *) break ;;
+            esac
+        done
+        while :; do
+            case "$_lv" in
+                *[[:space:]]) _lv=${_lv%?} ;;
+                *) break ;;
+            esac
+        done
+        _LINE_VALUE=$_lv
+        IFS=$_lv_oldifs
+        set +f
+        return 0
+    done
+    IFS=$_lv_oldifs
+    set +f
+    return 1
+}
+
+# at_despace <text>  ->  _DESPACED   (every space removed, not just the ends)
+# Replaces: tr -d ' '
+at_despace() {
+    _ds=$1
+    _DESPACED=''
+    while :; do
+        case "$_ds" in
+            *' '*) _DESPACED=$_DESPACED${_ds%% *} ; _ds=${_ds#* } ;;
+            *) _DESPACED=$_DESPACED$_ds ; return 0 ;;
+        esac
+    done
+}
+
+# at_to_num <value>  ->  _NUM (validated, octal-safe), rc 1 when not numeric
+# Replaces: printf '%s' "$1" | awk '{ if ($1 ~ /^-?[0-9]+$/) ... }'
+# The leading-zero strip is not cosmetic: shell arithmetic reads `08` as an
+# invalid octal literal, so a modem field of "08" must be normalised to `8`
+# rather than turned into an arithmetic error.
+at_to_num() {
+    case "$1" in
+        ''|*[!0-9-]*) _NUM='' ; return 1 ;;
+    esac
+    _tn=$1
+    _tn_neg=''
+    case "$_tn" in
+        -*) _tn_neg='-' ; _tn=${_tn#-} ;;
+    esac
+    # a lone "-" is the sentinel for "the modem did not report this", NOT zero:
+    # answering 0 here would fabricate a reading, which is the class of bug this
+    # shim exists to prevent (it emits `-` for unavailable fields itself).
+    [ -n "$_tn" ] || { _NUM='' ; return 1 ; }
+    while :; do
+        case "$_tn" in
+            0?*) _tn=${_tn#0} ;;
+            *) break ;;
+        esac
+    done
+    [ -n "$_tn" ] || _tn=0
+    _NUM=$_tn_neg$_tn
+    return 0
+}
+
+# ---------------------------------------------------------------------------
+# AT SNAPSHOT CACHE
+# ---------------------------------------------------------------------------
+# The shim is a fresh process per call, so a cache file is the only thing that
+# can collapse repeated reads. Both consumers ask for the same values over and
+# over: qmanager_poller every 3 s (several tile reads land in one pass), and the
+# CGIs fire 5-15 `qcmd` calls per page load, often seconds apart.
+#
+# A hit costs no fork at all (~2 ms measured) against ~51 ms for a miss, and is
+# always a byte-for-byte copy of what the modem answered. Correctness rules:
+#
+#   * nothing is cached unless it is on the allowlist, so a cache file can never
+#     make an unverified command reachable;
+#   * a FAILED read is never cached — a transient ERROR must not outlive the
+#     condition that caused it;
+#   * any state-changing write drops the whole cache, so a read after a write
+#     cannot be served from before it;
+#   * the TTL is shorter than the poller's 3 s cadence, so a poll cycle never
+#     reads data cached by the previous one (except identity, which cannot
+#     change without a write, and is dropped by the same rule when one happens).
+#
+# TWO live TTLs, and the difference between them is the point:
+#
+#   TTL_LIVE  (15 s, QM_AT_TTL) is what a UI/CGI read gets. It only has to
+#             cover the gap until the poller next refreshes a slot, because a
+#             snapshot the poller touches every cycle is never older than its
+#             period. Measured 2026-11-05: cpsi and CRSRP are rewritten every
+#             cycle, while COPS and CGCONTRDP can go a minute without being
+#             read — those were the reads still paying the lock, at p90 120 ms.
+#             Fifteen seconds covers them without letting a UI read show a
+#             reading the poller could have contradicted long ago.
+#   TTL_FORCE (2 s, QM_AT_TTL_FORCE) is what the POLLER gets, via
+#             QM_AT_REFRESH=1. It must stay BELOW the poller's own period or the
+#             cache would feed itself: the poller would hit its previous cycle's
+#             snapshot and the reading would freeze at the first sample. That is
+#             the trap a single long TTL walks into, and it is why this is a
+#             split rather than one number. Qmanager-poller.service sets
+#             QM_AT_MIN_INTERVAL=3, so 2 s leaves a second of margin — and it
+#             still collapses the four CPSI reads inside one tier-1.5 pass,
+#             which is what the original 1 s CPSI cache existed for.
+#
+# Clock: /proc/uptime, read with the `read` builtin — `date +%s` was a 18.5 ms
+# fork on EVERY call including hits, which is half of what this cache saves.
+# Uptime resets on reboot and the cache lives in /tmp (tmpfs), so the two agree.
+# A cache file written by an older build (epoch stamp) reads as "from the
+# future", which is treated as expired — a refetch, never a stale answer.
+# ---------------------------------------------------------------------------
+CACHE_ON="${QM_AT_CACHE:-1}"
+CACHE_DIR="${QM_AT_CACHE_DIR:-/tmp/qmanager_at_cache}"
+TTL_LIVE="${QM_AT_TTL:-15}"
+TTL_FORCE="${QM_AT_TTL_FORCE:-2}"
+TTL_STATIC="${QM_AT_TTL_STATIC:-60}"  # identity: fixed for a boot
+REFRESH="${QM_AT_REFRESH:-0}"
+SLOT_LIVE_TTL=$TTL_LIVE
+[ "$REFRESH" = 1 ] && SLOT_LIVE_TTL=$TTL_FORCE
+
+CPSI_CACHE="${QM_CPSI_CACHE:-$CACHE_DIR/cpsi}"
+# An explicit QM_CPSI_TTL still wins: the unit suites and ops both use it.
+if [ -n "${QM_CPSI_TTL:-}" ]; then
+    CPSI_TTL=$QM_CPSI_TTL
+else
+    CPSI_TTL=$SLOT_LIVE_TTL
+fi
+_AT_STALE=0
+
+# at_now_cs  ->  _AT_NOW (centiseconds, monotonic within a boot)
+at_now_cs() {
+    # `2>/dev/null` comes BEFORE the input redirect on purpose: redirections are
+    # applied left to right, and a host without /proc errors while SETTING UP the
+    # input redirect, i.e. before a later 2>/dev/null could silence it.
+    if read -r _nc_up _nc_rest 2>/dev/null < /proc/uptime; then
+        case "$_nc_up" in
+            ''|*[!0-9.]*) ;;
+            *.*) _nc_sec=${_nc_up%%.*} ; _nc_frac=${_nc_up#*.} ;
+                 _nc_frac=${_nc_frac}00
+                 _nc_frac=${_nc_frac%${_nc_frac#??}}
+                 while :; do
+                     case "$_nc_sec" in 0?*) _nc_sec=${_nc_sec#0} ;; *) break ;; esac
+                 done
+                 while :; do
+                     case "$_nc_frac" in 0?*) _nc_frac=${_nc_frac#0} ;; *) break ;; esac
+                 done
+                 [ -n "$_nc_sec" ] || _nc_sec=0
+                 [ -n "$_nc_frac" ] || _nc_frac=0
+                 _AT_NOW=$(( _nc_sec * 100 + _nc_frac ))
+                 return 0 ;;
+        esac
+    fi
+    # Host fallback (unit tests on macOS, which has no /proc). Same unit, and a
+    # different base simply reads as expired rather than as a wrong answer.
+    _nc_s=$(date +%s 2>/dev/null) || return 1
+    case "$_nc_s" in ''|*[!0-9]*) return 1 ;; esac
+    _AT_NOW=$(( _nc_s * 100 ))
+}
+
+# at_cache_read <file> <ttl_seconds>  ->  _CACHE_VAL, rc 0 on a fresh hit
+at_cache_read() {
+    [ -f "$1" ] || return 1
+    _cr_at='' ; _cr_val='' ; _cr_first=1 ; _cr_n=0
+    while IFS= read -r _cr_l || [ -n "$_cr_l" ]; do
+        if [ "$_cr_first" = 1 ]; then
+            _cr_first=0 ; _cr_at=$_cr_l ; continue
+        fi
+        if [ "$_cr_n" = 0 ]; then _cr_val=$_cr_l ; else _cr_val=$_cr_val$NL$_cr_l ; fi
+        _cr_n=$(( _cr_n + 1 ))
+    done < "$1"
+    [ "$_cr_n" -gt 0 ] || return 1
+    case "$_cr_at" in ''|*[!0-9]*) return 1 ;; esac
+    at_now_cs || return 1
+    [ "$_AT_NOW" -ge "$_cr_at" ] || return 1          # clock skew / other base
+    [ $(( _AT_NOW - _cr_at )) -le $(( $2 * 100 )) ] || return 1
+    # A snapshot is only usable if it is COMPLETE. A writer that was interrupted,
+    # or a reader racing one — which --peek does by definition — leaves a
+    # truncated payload, and a truncated +CPSI line parses into a plausible wrong
+    # reading. Every cacheable reply ends with the modem's final result code, so
+    # require it: a torn snapshot is a miss, and a miss is always a refetch.
+    at_rtrim "$_cr_val"
+    case "$_TRIMMED" in
+        *OK) ;;
+        *) return 1 ;;
+    esac
+    _CACHE_VAL=$_cr_val
+    return 0
+}
+
+# at_cache_write <file> <payload>  ->  stores `<centiseconds>\n<payload>`
+at_cache_write() {
+    _cw_dir=${1%/*}
+    [ -d "$_cw_dir" ] || mkdir -p "$_cw_dir" 2>/dev/null || return 1
+    at_now_cs || return 1
+    { printf '%s\n' "$_AT_NOW" ; printf '%s\n' "$2" ; } > "$1" 2>/dev/null || return 1
+    return 0
+}
+
+# at_cache_drop — a write happened; nothing cached before it may be served after
+at_cache_drop() {
+    [ "$CACHE_ON" = 1 ] || return 0
+    [ -d "$CACHE_DIR" ] && rm -f "$CACHE_DIR"/* 2>/dev/null
+    case "$CPSI_CACHE" in
+        "$CACHE_DIR"/*) ;;
+        *) [ -f "$CPSI_CACHE" ] && rm -f "$CPSI_CACHE" 2>/dev/null ;;
+    esac
+    return 0
+}
+
+# at_cache_slot <cmd>  ->  _SLOT_FILE, _SLOT_TTL ; rc 1 = not cacheable
+# Exact strings only. Two commands that merely LOOK alike (AT+CGCONTRDP and
+# AT+CGCONTRDP=6, AT+CCELLCFG? and AT+CCELLCFG=0) must never share a slot, and a
+# write must never be answered from one.
+at_cache_slot() {
+    _SLOT_FILE='' ; _SLOT_TTL=0
+    case "$1" in
+        # --- the serving cell: the poller asks 4x per pass, TTL 1 s ----------
+        'AT+CPSI?')        _SLOT_FILE=$CPSI_CACHE ; _SLOT_TTL=$CPSI_TTL ; return 0 ;;
+        # --- live radio state ----------------------------------------------
+        'AT+CCAINFO?'|'AT+CRSRP?'|'AT+CSINR?'|'AT+CRSSI?'|'AT+CSQ'| \
+        'AT+CPAS'|'AT+CPIN?'|'AT+CGATT?'|'AT+COPS?'|'AT+CEREG?'| \
+        'AT+C5GREG?'|'AT+CFUN?'|'AT+CGACT?'|'AT+CGDCONT?'|'AT+CGPADDR'| \
+        'AT+CPMS?'|'AT+CNMP?'|'AT+CGCONTRDP'|'AT+QTEMP'|'AT+CCELLCFG?'| \
+        'AT+CSYSSEL="lte_band"'|'AT+CSYSSEL="nr5g_band"'| \
+        'AT+CSYSSEL="nsa_nr5g_band"'|'AT+CSYSSEL="nr5g_disable"'| \
+        'AT+CSYSSEL="nrdc_nr5g_band"')
+            _SLOT_TTL=$SLOT_LIVE_TTL ;;
+        # --- identity: fixed for a boot, and dropped by any identity write ----
+        'ATI'|'AT+CGMM'|'AT+CGMR'|'AT+CGSN'|'AT+CIMI'|'AT+CICCID'|'AT+CNUM'| \
+        'AT+CSYSSEL=?')
+            _SLOT_TTL=$TTL_STATIC ;;
+        *)  return 1 ;;
+    esac
+    # slot file name: the command with the AT prefix and punctuation folded to _
+    _slot_n=${1#AT+}
+    _slot_n=${_slot_n%\?}
+    at_slot_name "$_slot_n"
+    _SLOT_FILE=$CACHE_DIR/$_SLOT_NAME
+    return 0
+}
+
+# at_slot_name <token>  ->  _SLOT_NAME (safe filename; no fork)
+at_slot_name() {
+    _sn_in=$1
+    _SLOT_NAME=''
+    while :; do
+        case "$_sn_in" in
+            '') return 0 ;;
+            [ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789]*)
+                _SLOT_NAME=$_SLOT_NAME${_sn_in%"${_sn_in#?}"}
+                _sn_in=${_sn_in#?} ;;
+            *)
+                _SLOT_NAME=$_SLOT_NAME'_'
+                _sn_in=${_sn_in#?} ;;
+        esac
+    done
+}
+
+# in_blacklist <cmd> — fork-free membership test (was: grep -qxF, 18.5 ms)
+in_blacklist() {
+    [ -f "$BLACKLIST" ] || return 1
+    while IFS= read -r _bl || [ -n "$_bl" ]; do
+        [ "$_bl" = "$1" ] && return 0
+    done < "$BLACKLIST"
+    return 1
+}
+
+# at_fetch <cmd>  ->  _AT_OUT (the cleaned reply, or ERROR). Never prints.
+# Setting a variable instead of piping means internal callers pay NO fork for
+# the capture that `_x=$(at_raw cmd)` used to cost.
+at_fetch() {
+    _SLOT_FILE='' ; _SLOT_TTL=0 ; _AT_OUT='' ; _SPILL_PATH=''
+
+    # Refuse anything unverified before it can wedge the daemon.
+    if ! is_safe_cmd "$1"; then
+        _AT_OUT='ERROR'
+        return 0
+    fi
+    # A command that already timed out once is never retried this boot: the
+    # daemon has no timeout, so a retry is another way to wedge it.
+    if in_blacklist "$1"; then
+        _AT_OUT='ERROR'
+        return 0
+    fi
+
+    # A read that was answered moments ago is answered again from the snapshot.
+    if [ "$CACHE_ON" = 1 ] && at_cache_slot "$1"; then
+        if at_cache_read "$_SLOT_FILE" "$_SLOT_TTL"; then
+            _AT_OUT=$_CACHE_VAL
+            return 0
+        fi
+    fi
+    # --peek: no usable snapshot, so the caller must take the lock and ask again.
+    if [ "$PEEK" = 1 ]; then
+        _AT_STALE=1
+        _AT_OUT=''
+        return 0
+    fi
+
+    if [ -n "$TIMEOUT_BIN" ]; then
+        _out=$("$TIMEOUT_BIN" "$AT_TIMEOUT" "$ATCMD" "$1" 2>&1)
+    else
+        _out=$("$ATCMD" "$1" 2>&1)
+    fi
+    _rc=$?
+    if [ "$_rc" -ne 0 ]; then
+        # 124 = timeout. Record it so nothing ever queues behind it again.
+        [ "$_rc" -eq 124 ] && printf '%s\n' "$1" >> "$BLACKLIST" 2>/dev/null
+        _AT_OUT='ERROR'
+    else
+        at_strip_echo "$_out"
+        if [ -z "$_STRIPPED" ] || at_is_blank "$_STRIPPED"; then
+            _AT_OUT='ERROR'
+        elif at_is_daemon_error "$_STRIPPED"; then
+            _AT_OUT='ERROR'
+        elif at_is_spill "$_STRIPPED"; then
+            # A marker we cannot turn into a readable path is a failure, not a
+            # reply: never let the sentinel itself reach a parser.
+            if at_spill_path "$_STRIPPED"; then
+                at_spill_read "$_SPILL_PATH"
+            else
+                _AT_OUT='ERROR'
+            fi
+        else
+            _AT_OUT=$_STRIPPED
+        fi
+    fi
+
+    # Cache the successes only. Any reply that carries ERROR (a bare `ERROR`, or
+    # a `+CME ERROR:` line) is a failure of THIS moment and must not outlive it:
+    # the raw reply still carries the modem's CR, so the test is a substring
+    # match, not an equality against "ERROR".
+    if [ -n "$_SLOT_FILE" ]; then
+        case "$_AT_OUT" in
+            *ERROR*) ;;
+            *) at_cache_write "$_SLOT_FILE" "$_AT_OUT" ;;
+        esac
+    fi
+    # A write invalidates every snapshot. Matched on an exact comma/shape so the
+    # reads above (AT+CSYSSEL="lte_band" has no comma) cannot fall in here.
+    case "$1" in
+        'AT+SIMEI='*|'AT+CFUN='*|'AT+CRESET'|'AT+CPOF'|'AT+CPMS='*| \
+        'AT+CMGF='*|'AT+CMGD='*|'AT+CGEREP='*|'AT+CNMP='*|'AT+CCELLCFG='*| \
+        'AT+CSYSSEL='*','*)
+            at_cache_drop ;;
+    esac
+    return 0
+}
+
+at_raw() {
+    at_fetch "$1"
+    printf '%s\n' "$_AT_OUT"
+}
+
+# The two NON-AT sources this shim synthesises Quectel answers from. Both were
+# hardcoded absolute paths, which had two consequences: the newest logic in this
+# file could not be unit-tested on a host at all, and a device that keeps its
+# vendor store or its qmicli somewhere else could not be supported without
+# editing the shim. These follow the same override convention as ATCMD above and
+# the same names qmi_read.sh / phy_metrics.sh already use for the same things.
+DEVINFO="${QM_PHY_DEVINFO_FILE:-/tmp/.devinfo_module_data}"
+QMI_BIN="${QM_QMI_BIN:-/data/qmanager/lib/qmi/bin/qmicli}"
+QMI_LIBDIR="${QM_QMI_LIBDIR:-/data/qmanager/lib/qmi/lib}"
+QMI_DEV="${QM_QMI_DEV:-qrtr://3}"
+
+# +CPSI is the single source for serving-cell AND per-antenna values here, and
+# the poller asks for all four inside one Tier-1.5 pass. The 1 s cache (see
+# CPSI_TTL above) collapses those into one modem round-trip without ever
+# crossing a poll cycle (~3 s). Kept as a name because emit_qeng/_cpsi_field
+# read through it, and because it documents the one cache with its own TTL.
+cpsi_raw() {
+    at_raw 'AT+CPSI?'
+}
+
+# CPSI field N (1-based) and the x10/x100-scaled companions, all from one call.
+_cpsi_field() {
+    _n=$1
+    _c=$(cpsi_raw)
+    _ln=""
+    _old=$IFS; IFS='
+'
+    for _l in $_c; do
+        case "$_l" in '+CPSI: LTE'*) at_rtrim "$_l"; _ln=$_TRIMMED; break ;; esac
+    done
+    IFS=$_old
+    [ -n "$_ln" ] || return 1
+    set -f
+    IFS=,
+    # shellcheck disable=SC2086
+    set -- ${_ln#+CPSI: }
+    IFS=$_old
+    set +f
+    eval "_val=\${$_n}"
+    printf '%s' "$_val"
+}
+
+# Per-antenna commands. This firmware DOES report per-chain RSRP, SINR and
+# RSSI — four values per RAT — from SIMCom's own per-antenna queries:
+#     AT+CRSRP?  -> +CRSRP: LTE,-97,-98,-90,-89  / +CRSRP: NR5G,-74,-76,-83,-75
+#     AT+CSINR?  -> +CSINR: LTE,8,0,8,8          / +CSINR: NR5G,22,20,13,20
+#     AT+CRSSI?  -> +CRSSI: LTE,-63,-63,-59,-59  / +CRSSI: NR5G,-64,-65,-71,-65
+# Verified live on the X16 2026-10-26. Values are already whole dBm / dB, the
+# same units Quectel uses, so no scaling is applied.
+#
+# RSRQ has NO per-chain source on this modem (`AT+CRSRQ?`/`AT+CSRQ?` answer
+# ERROR), so it is emitted as four nulls rather than repeating the serving-cell
+# aggregate in port 0 — an aggregate labelled "Main" is the exact lie this
+# adapter used to tell.
+emit_antenna_native() {
+    _kind=$1        # QRSRP | QSINR
+    case "$_kind" in
+        QRSRP) _src='AT+CRSRP?' ;;
+        QSINR) _src='AT+CSINR?' ;;
+        *)     printf 'OK\n'; return 0 ;;
+    esac
+    at_fetch "$_src"
+    _raw=$_AT_OUT
+    _tag=${_src#AT+}; _tag=${_tag%\?}      # CRSRP | CSINR
+    _out=""
+    _oldifs=$IFS
+    set -f
+    IFS='
+'
+    for _ln in $_raw; do
+        at_rtrim "$_ln"
+        _ln=$_TRIMMED
+        case "$_ln" in "+$_tag: "*) ;; *) continue ;; esac
+        _body=${_ln#+$_tag: }
+        _rat=${_body%%,*}
+        _vals=${_body#*,}
+        case "$_rat" in LTE|NR5G) ;; *) continue ;; esac
+        # Re-emit in the Quectel shape parse_at.sh reads: four values, RAT last.
+        _out="$_out+$_kind: $_vals,$_rat
+"
+    done
+    IFS=$_oldifs
+    set +f
+    if [ -z "$_out" ]; then
+        printf 'ERROR\n'
+        return 0
+    fi
+    printf '%s\nOK\n' "$_out"
+}
+
+# RSRQ: no per-chain measurement exists, so answer four nulls. -32768 is the
+# parser's documented "unavailable" sentinel and renders as JSON null.
+emit_antenna_unavailable() {
+    printf '+%s: -32768,-32768,-32768,-32768,LTE\n\nOK\n' "$1"
+}
+
+# whole-dBm from a x10 value; non-numeric input yields empty
+tenth_to_int() {
+    at_to_num "$1" || return 0
+    printf '%s' "$(( _NUM / 10 ))"
+}
+
+# RSRQ in +CPSI is hundredths of a dB: -668 -> -6.68 dB -> -7.
+# Measured against +CCAINFO on the same second:
+#   CPSI -668 / -638 / -656   <=>  CCAINFO PCC RSRQ -7 dB
+# The tenths rule that works for RSRP (-940 -> -94) is WRONG for RSRQ; using
+# it reported -66 dB, a value outside RSRQ's physical range.
+hundredth_to_int() {
+    at_to_num "$1" || return 0
+    if [ "$_NUM" -lt 0 ]; then
+        printf '%s' "$(( (_NUM - 50) / 100 ))"
+    else
+        printf '%s' "$(( (_NUM + 50) / 100 ))"
+    fi
+}
+
+# 212150373 -> CA52805  (busybox printf handles %X on 32-bit ints)
+dec_to_hex() {
+    case "$1" in
+        ''|*[!0-9]*) printf '' ;;
+        *) printf '%X' "$1" 2>/dev/null ;;
+    esac
+}
+
+# band number out of "EUTRAN-BAND3" / "NR5G_BAND78" / "LTE BAND 3"
+band_num() {
+    # "EUTRAN-BAND3" / "NR5G_BAND78" / "LTE BAND 3" -> the number, no fork.
+    # The sed this replaces was case-insensitive and greedy (`.*` first), i.e. it
+    # took the LAST "band" occurrence -- hence `##*` below.
+    at_rtrim "$1"
+    _bn_s=$_TRIMMED
+    case "$_bn_s" in
+        *BAND*) _bn_s=${_bn_s##*BAND} ;;
+        *band*) _bn_s=${_bn_s##*band} ;;
+        *Band*) _bn_s=${_bn_s##*Band} ;;
+        *) return 0 ;;
+    esac
+    while :; do
+        case "$_bn_s" in
+            '[-_. ]'*) _bn_s=${_bn_s#?} ;;
+            *) break ;;
+        esac
+    done
+    _bn_d=''
+    while :; do
+        case "$_bn_s" in
+            [0-9]*) _bn_d=$_bn_d${_bn_s%"${_bn_s#?}"} ; _bn_s=${_bn_s#?} ;;
+            *) break ;;
+        esac
+    done
+    printf '%s' "$_bn_d"
+}
+
+# "410-03" -> "410 03" (MCC MNC)
+plmn_split() {
+    _mcc=${1%%-*}
+    _mnc=${1#*-}
+    [ "$_mnc" = "$1" ] && _mnc=""
+    printf '%s %s' "$_mcc" "$_mnc"
+}
+
+# is this band TDD? (3GPP LTE TDD bands + all NR bands default to TDD)
+is_tdd() {
+    case "$1" in
+        33|34|35|36|37|38|39|40|41|42|43|44|45|46|47|48|50|51|52|53) printf 'TDD' ;;
+        *) printf 'FDD' ;;
+    esac
+}
+
+# ---------------------------------------------------------------------------
+# AT+QENG="servingcell"  <-  AT+CPSI?
+#
+# TWO layouts, and the modem decides which one by what it reports:
+#
+# LTE-only (parser: parse_at.sh:392-402) — 17 fields, indexed by position with
+# the "servingcell" prefix INCLUDED:
+#   1 servingcell 2 state 3 LTE 4 is_tdd 5 MCC 6 MNC 7 cellID(hex)
+#   8 PCID 9 earfcn 10 band 11 UL_bw 12 DL_bw 13 TAC(hex) 14 RSRP
+#   15 RSRQ 16 RSSI 17 SINR
+#
+# EN-DC / NR5G-NSA (parser: parse_at.sh:331-374) — THREE lines:
+#   1 servingcell + state only
+#   2 "LTE" row WITHOUT the servingcell prefix (the parser selects it with
+#     index(LN[i],"\"LTE\"")>0 && index(LN[i],"\"servingcell\"")==0; a line that
+#     keeps the prefix is invisible to it)
+#   3 "NR5G-NSA" row: MCC MNC PCID RSRP SINR RSRQ ARFCN band
+#
+# WHY THIS BRANCHING EXISTS (measured on this unit 2026-10-26): SIMCom returns
+# the 5G leg as a SECOND +CPSI record on the same response —
+#   +CPSI: LTE,Online,410-01,0xD857,48466199,104,EUTRAN-BAND1,250,3,3,-133,-898,-579,-9
+#   +CPSI: NR5G_NSA,47,NR5G_BAND41,509070,-770,-110,21,1,9
+# The original version scanned for '+CPSI: LTE' and `break`-ed, so the NR record
+# was dropped, only the LTE line was synthesised, and parse_at.sh's EN-DC branch
+# never fired. The UI then showed network.type=LTE and a 4G tile while the box
+# was on n41 — the "shows 4G while 5G is connected" defect. The vendor dialer
+# does not have this bug: it strstrs '+CPSI: NR5G_NSA' and prints '5G(NSA)'
+# (firmware-analysis/dialer.strings:2080-2088).
+#
+# NR field scaling, cross-checked against +CRSRP/+CSINR in the same second:
+#   f4 RSRP is tenths of a dB  -> /10, truncating (same rule as LTE)
+#   f5 RSRQ is tenths of a dB  -> /10, rounding   (same rule as LTE RSRQ)
+#   f6 SINR is WHOLE dB        -> used as-is. Do NOT divide: docs/raw/
+#      scout-04-simcom-at-mapping.md claims x10 there and is wrong on this unit
+#      (two same-second samples: CPSI 21/22 vs +CSINR 21/19 then 22/20).
+#   f7,f8 constant across samples (1,9) -> unused.
+# ---------------------------------------------------------------------------
+emit_qeng() {
+    # One atcmd spawn + one split, and NO forks of its own: at_fetch hands the
+    # reply back in a variable, so the capture that `_cpsi=$(cpsi_raw)` used to
+    # cost is gone. The first version forked a `cut` per field (~13 forks) and an
+    # awk for the scaling: 0.35 s per call on a 1-core A7. This is the poller's
+    # every-cycle call.
+    at_fetch 'AT+CPSI?'
+    _cpsi=$_AT_OUT
+
+    # `set -f` matters: unquoted expansion below must not glob.
+    set -f
+    _lte=""
+    _nr=""
+    _oldifs=$IFS
+    IFS='
+'
+    for _l in $_cpsi; do
+        case "$_l" in
+            '+CPSI: LTE'*)      at_rtrim "$_l" ; _lte=$_TRIMMED ;;
+            '+CPSI: NR5G_NSA'*) at_rtrim "$_l" ; _nr=$_TRIMMED ;;
+        esac
+    done
+    IFS=$_oldifs
+
+    if [ -z "$_lte" ]; then
+        set +f
+        printf '+QENG: "servingcell","SEARCH"\n\nOK\n'
+        return 0
+    fi
+
+    _csv=${_lte#+CPSI: }
+    IFS=,
+    # shellcheck disable=SC2086
+    set -- $_csv
+    IFS=$_oldifs
+    set +f
+
+    _stat=$2 ; _plmn=$3 ; _tac=$4 ; _cid=$5 ; _pcid=$6
+    _band=$7 ; _earfcn=$8 ; _ulbw=$9
+    shift 9
+    # CPSI's remaining fields, in the order this firmware actually emits them.
+    # The previous version read field 11 as RSSI, 12 as RSRP(tenths) and 13 as
+    # RSRQ(hundredths), which is wrong on two counts. Measured against the
+    # vendor's own devinfo dump (/tmp/.devinfo_module_data, the table the stock
+    # UI renders) at the same instant, three consecutive samples:
+    #
+    #   CPSI           -120,-884,-600,0    -131,-890,-584,1    -119,-885,-592,2
+    #   vendor RSRP     -88                -88                -90
+    #   vendor RSRQ     -11/-12            -12                -12/-13
+    #   vendor RSSI     -58/-60            -58                -60
+    #   vendor SINR     0                  0                  0/-2
+    #
+    # So: 11 = RSRQ (tenths), 12 = RSRP (tenths), 13 = RSSI (tenths),
+    #     14 = SINR (whole dB). RSSI matches the vendor exactly (-600 -> -60,
+    #     -584 -> -58); the old code emitted field 11 raw as RSSI (-120 dBm,
+    #     physically impossible) and divided field 13 by 100 to get an RSRQ of
+    #     -6 where the vendor showed -12.
+    _dlbw=$1 ; _rsrq10=$2 ; _rsrp10=$3 ; _rssi10=$4 ; _sinr=$5
+
+    _qstat="NOCONN"
+    case "$_stat" in
+        Online|online|Registered|registered|'Full service') _qstat="CONNECT" ;;
+        *earch*) _qstat="SEARCH" ;;
+        *imited*|*enied*) _qstat="LIMSRV" ;;
+    esac
+
+    # band number out of EUTRAN-BAND3 / NR5G_BAND78, no fork
+    _bn=""
+    case "$_band" in
+        *BAND*) _bn=${_band##*BAND} ;;
+        *band*) _bn=${_band##*band} ;;
+    esac
+    _bn=${_bn%%[!0-9]*}
+    [ -n "$_bn" ] || _bn=0
+
+    # All three are tenths of a dB and all three truncate toward zero, which is
+    # what the vendor reports for the same second (rounded RSRP would say -95
+    # where it says -94).
+    _rsrp=""
+    case "$_rsrp10" in
+        ''|*[!0-9-]*) ;;
+        *) _rsrp=$(( _rsrp10 / 10 )) ;;
+    esac
+    _rsrq=""
+    case "$_rsrq10" in
+        ''|*[!0-9-]*) ;;
+        *) _rsrq=$(( _rsrq10 / 10 )) ;;
+    esac
+    _rssi=""
+    case "$_rssi10" in
+        ''|*[!0-9-]*) ;;
+        *) _rssi=$(( _rssi10 / 10 )) ;;
+    esac
+
+    _hex=$(dec_to_hex "$_cid")
+    # 0x29DD -> 29DD (no fork; `tr -d xX` used to do this through a pipe)
+    case "$_tac" in
+        0[xX]*) _tac_hex=${_tac#0?} ;;
+        *)      _tac_hex=$_tac ;;
+    esac
+    _tac_hex=${_tac_hex#0}
+    [ -n "$_tac_hex" ] || _tac_hex=0
+
+    set -- $(plmn_split "$_plmn")
+    _mcc=$1 ; _mnc=$2
+
+    _tdd=FDD
+    case "$_bn" in
+        33|34|35|36|37|38|39|40|41|42|43|44|45|46|47|48|50|51|52|53) _tdd=TDD ;;
+    esac
+
+    # ---- LTE-only: byte-for-byte the original single line ------------------
+    # The parser's LTE-only branch indexes by position WITH the servingcell
+    # prefix included, so this branch must not change shape.
+    if [ -z "$_nr" ]; then
+        printf '+QENG: "servingcell","%s","LTE","%s",%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n\nOK\n' \
+            "$_qstat" "$_tdd" "${_mcc:-0}" "${_mnc:-0}" \
+            "${_hex:-0}" "${_pcid:-0}" "${_earfcn:-0}" "$_bn" \
+            "${_ulbw:-0}" "${_dlbw:-0}" "$_tac_hex" \
+            "${_rsrp:--}" "${_rsrq:--}" "${_rssi:--}" "${_sinr:--}"
+        return 0
+    fi
+
+    # ---- EN-DC: servingcell + LTE + NR5G-NSA ------------------------------
+    # +CPSI: NR5G_NSA,<pcid>,<band>,<ssb_arfcn>,<rsrp x10>,<rsrq x10>,<sinr>
+    _ncsv=${_nr#+CPSI: NR5G_NSA}
+    _ncsv=${_ncsv#,}
+    set -f
+    _oldifs=$IFS
+    IFS=,
+    # shellcheck disable=SC2086
+    set -- $_ncsv
+    IFS=$_oldifs
+    set +f
+
+    _npcid=$1 ; _nband=$2 ; _narfcn=$3 ; _nrsrp10=$4 ; _nrsrq10=$5 ; _nsinr=$6
+
+    # band number out of NR5G_BAND41 (same suffix trick as the LTE band above)
+    _nbn=""
+    case "$_nband" in
+        *BAND*) _nbn=${_nband##*BAND} ;;
+        *band*) _nbn=${_nband##*band} ;;
+    esac
+    _nbn=${_nbn%%[!0-9]*}
+    [ -n "$_nbn" ] || _nbn=0
+
+    # RSRP truncates toward zero; RSRQ rounds - both matching the LTE rules and
+    # the vendor's +CRSRP for the same second. SINR is already whole dB.
+    _nrsrp="-"
+    case "$_nrsrp10" in
+        ''|*[!0-9-]*) ;;
+        *) _nrsrp=$(( _nrsrp10 / 10 )) ;;
+    esac
+    _nrsrq="-"
+    case "$_nrsrq10" in
+        ''|*[!0-9-]*) ;;
+        *) if [ "$_nrsrq10" -lt 0 ]; then _nrsrq=$(( (_nrsrq10 - 5) / 10 )); else _nrsrq=$(( (_nrsrq10 + 5) / 10 )); fi ;;
+    esac
+    # SINR needs no scaling, only a validity check. Keep the raw value in
+    # _nsinr and blank it when it is not a number — assigning a fresh "-"
+    # first would overwrite the reading itself.
+    case "$_nsinr" in
+        ''|*[!0-9-]*) _nsinr="-" ;;
+    esac
+
+    printf '+QENG: "servingcell","%s"\n' "$_qstat"
+    printf '+QENG: "LTE","%s",%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' \
+        "$_tdd" "${_mcc:-0}" "${_mnc:-0}" \
+        "${_hex:-0}" "${_pcid:-0}" "${_earfcn:-0}" "$_bn" \
+        "${_ulbw:-0}" "${_dlbw:-0}" "$_tac_hex" \
+        "${_rsrp:--}" "${_rsrq:--}" "${_rssi:--}" "${_sinr:--}"
+    printf '+QENG: "NR5G-NSA",%s,%s,%s,%s,%s,%s,%s,%s\n\nOK\n' \
+        "${_mcc:-0}" "${_mnc:-0}" "${_npcid:--}" "$_nrsrp" "$_nsinr" \
+        "$_nrsrq" "${_narfcn:--}" "$_nbn"
+}
+
+# ---------------------------------------------------------------------------
+# AT+QCAINFO  <-  AT+CCAINFO?
+# Quectel layout consumed by parse_ca_info (parse_at.sh:803+), after quotes and
+# spaces are stripped:
+#   f1 label  f2 earfcn  f3 bandwidth-code  f4 "LTE BAND<n>"  f5 spare
+#   f6 PCID  f7 RSRP  f8 RSRQ  f9 RSSI  f10 SINR
+# SIMCom CCAINFO (measured, 3 samples):
+#   PCC: label,band,earfcn,bw,pci,rsrp,rsrq,rssi,<ta>
+#   SCC: label,band,earfcn,bw,pci,<u>,rsrp,rsrq,rssi,<ta>,...
+# i.e. the SCC rows carry one extra field after PCI, so the metric columns
+# shift by one. Both are handled explicitly rather than by guessing.
+# ---------------------------------------------------------------------------
+emit_qcainfo() {
+    at_fetch 'AT+CCAINFO?'
+    _raw=$_AT_OUT
+    _any=0
+    _oldifs=$IFS
+    set -f
+    IFS='
+'
+    for _ln in $_raw; do
+        case "$_ln" in
+            '+CCAINFO:'*) ;;
+            *) continue ;;
+        esac
+        _any=1
+        _csv=${_ln#+CCAINFO: }
+        at_unquote "$_csv"
+        at_rtrim "$_UNQUOTED"
+        _csv=$_TRIMMED
+
+        IFS=,
+        # shellcheck disable=SC2086
+        set -- $_csv
+        IFS=$_oldifs
+        _n=$#
+
+        _label=$1 ; _band_raw=$2 ; _earfcn=$3 ; _bw=$4 ; _pci=$5
+
+        # SCC rows carry one extra field after PCI; PCC does not (measured on
+        # three concurrent rows, see docs/04). Offsets are explicit, never
+        # guessed, and every metric is validated below.
+        #
+        # Field 9 on this firmware is SINR in 0.1 dB, NOT a spare column.
+        # Measured 2026-10-26 on three consecutive PCC rows against a
+        # simultaneous per-antenna read:
+        #   +CCAINFO: "PCC",EUTRAN_BAND3,1850,100,227,-73,-14,-39,137
+        #   +CSINR: LTE,14,12,15,13            <- 137/10 = 13.7 dB, in range
+        # The old code never read it and hardcoded '-' into the synthesised
+        # +QCAINFO SINR column, so LTE SINR was null on every cycle.
+        if [ "$_label" = "PCC" ]; then
+            _rsrp=$6 ; _rsrq=$7 ; _rssi=$8 ; _sinr10=$9
+        else
+            _rsrp=$7 ; _rsrq=$8 ; _rssi=$9 ; _sinr10=${10}
+        fi
+
+        _bn=""
+        case "$_band_raw" in
+            *BAND*) _bn=${_band_raw##*BAND} ;;
+        esac
+        _bn=${_bn%%[!0-9]*}
+
+        # A wrong pick is worse than a blank one: the UI plots it as measured.
+        #   RSRP -140..-50 dBm  RSRQ -25..-3 dB  RSSI -120..-20 dBm, RSSI>=RSRP
+        #
+        # The RSSI floor used to be -40 dBm, carried over from a Quectel unit.
+        # THIS modem's wideband RSSI sits at -32..-39 dBm, i.e. ABOVE that
+        # floor, so the guard fired on every PCC row and blanked RSRP, RSRQ and
+        # RSSI together -- the "Spectrum in use: not reported" symptom.
+        #
+        # -20 is chosen from the physics, not from one capture: RSSI is the
+        # whole received band, so it runs ~20-30 dB above RSRP and reaches the
+        # high -20s on a strong cell. The real sanity rule is the last one --
+        # RSSI must never be BELOW RSRP -- which is what catches a mis-parse.
+        case "$_rsrp" in ''|*[!0-9-]*) _rsrp="" ;; esac
+        case "$_rsrq" in ''|*[!0-9-]*) _rsrq="" ;; esac
+        case "$_rssi" in ''|*[!0-9-]*) _rssi="" ;; esac
+        case "$_sinr10" in ''|*[!0-9-]*) _sinr="" ;; *) _sinr=$(( _sinr10 / 10 )) ;; esac
+        # SINR sanity: -20..40 dB. Outside that it is a sentinel, not a reading.
+        [ -n "$_sinr" ] && { [ "$_sinr" -lt -20 ] || [ "$_sinr" -gt 40 ]; } && _sinr=""
+        if [ -n "$_rsrp" ] && [ -n "$_rsrq" ] && [ -n "$_rssi" ]; then
+            if [ "$_rsrp" -lt -140 ] || [ "$_rsrp" -gt -50 ] ||
+               [ "$_rsrq" -lt -25 ]  || [ "$_rsrq" -gt -3 ]  ||
+               [ "$_rssi" -lt -120 ] || [ "$_rssi" -gt -20 ] ||
+               [ "$_rsrp" -gt "$_rssi" ]; then
+                _rsrp="" ; _rsrq="" ; _rssi=""
+            fi
+        fi
+
+        printf '+QCAINFO: "%s",%s,%s,LTE BAND %s,0,%s,%s,%s,%s,%s\n' \
+            "${_label:-SCC}" "${_earfcn:-0}" "${_bw:-0}" "${_bn:-0}" \
+            "${_pci:-0}" "${_rsrp:--}" "${_rsrq:--}" "${_rssi:--}" "${_sinr:--}"
+    done
+    IFS=$_oldifs
+    set +f
+
+    [ "$_any" = "1" ] || printf '+QCAINFO: "PCC"\n'
+    printf '\nOK\n'
+}
+
+# ---------------------------------------------------------------------------
+# AT+CVERSION  <-  ATI + AT+CGMR
+# parse_version greps '^VERSION:' and '^Authors:'
+# ---------------------------------------------------------------------------
+emit_cversion() {
+    at_fetch 'ATI'
+    _ati=$_AT_OUT
+    _rev='' ; _model='' ; _man=''
+    at_line_value "$_ati" 'Revision:'     && _rev=$_LINE_VALUE
+    at_line_value "$_ati" 'Model:'        && _model=$_LINE_VALUE
+    at_line_value "$_ati" 'Manufacturer:' && _man=$_LINE_VALUE
+    if [ -z "$_rev" ]; then
+        at_fetch 'AT+CGMR'
+        at_line_value "$_AT_OUT" '+CGMR:' && _rev=$_LINE_VALUE
+    fi
+    printf '+CVERSION: %s\n%s\nRevision: %s\nVERSION: %s\nAuthors: %s\n\nOK\n' \
+        "${_rev:-unknown}" "${_model:-SIMCOM_SIM8260E}" \
+        "${_rev:-unknown}" "${_rev:-unknown}" "${_man:-SIMCOM INCORPORATED}"
+}
+
+# ---------------------------------------------------------------------------
+# AT+CGCONTRDP (all contexts) — the device carries six provisioned PDP
+# profiles and the parser takes the FIRST non-IMS one, which is a dormant
+# roaming profile (GPRS.SWISSCOM.CH). The active WAN context is the one whose
+# local address equals rmnet_data0's address; return only that row so the APN
+# panel shows Ufone.internet, not a stale profile.
+# ---------------------------------------------------------------------------
+wan_ipv4() {
+    # QM_WAN_IP lets the unit tests drive this without a modem or an interface.
+    [ -n "${QM_WAN_IP:-}" ] && { printf '%s' "$QM_WAN_IP"; return 0; }
+    for _ip in /sbin/ip /usr/sbin/ip /bin/ip /usr/bin/ip; do
+        [ -x "$_ip" ] || continue
+        at_ipv4_addr "$_ip" rmnet_data0 && { printf '%s' "$_IPV4"; return 0; }
+        at_ipv4_addr "$_ip" rmnet_ipa0  && { printf '%s' "$_IPV4"; return 0; }
+    done
+    return 1
+}
+
+# at_ipv4_addr <ip-binary> <iface>  ->  _IPV4, rc 0 when the iface has a v4 address
+# Replaces: ip | awk '{print $4}' | cut -d/ -f1 | head -1  (four forks, ~55 ms,
+# on a path the APN panel and the poller both take)
+at_ipv4_addr() {
+    _IA_BIN=$1
+    _ia=$( "$_IA_BIN" -4 -o addr show dev "$2" 2>/dev/null ) || return 1
+    [ -n "$_ia" ] || return 1
+    _IPV4=''
+    set -f
+    _ia_keepifs=$IFS
+    IFS=$NL
+    for _ia_l in $_ia; do
+        case "$_ia_l" in
+            *inet*) ;;
+            *) continue ;;
+        esac
+        # 2: rmnet_data0    inet 10.220.84.156/30 brd ... scope global
+        # field 4 is the address INCLUDING its prefix length.
+        IFS=$_ia_keepifs
+        set -- $_ia_l
+        IFS=$NL
+        _IPV4=${4%%/*}
+        break
+    done
+    IFS=$_ia_keepifs
+    set +f
+    [ -n "$_IPV4" ]
+}
+
+emit_cgcontrdp() {
+    at_fetch 'AT+CGCONTRDP'
+    _all=$_AT_OUT
+    _wan=$(wan_ipv4)
+    if [ -n "$_wan" ]; then
+        # The local address is NOT quoted in this firmware ("<apn>",10.220.84.156,,...)
+        # Fork-free equivalent of `grep -F ",$wan," | head -1`.
+        _hit=''
+        set -f
+        _cg_keepifs=$IFS
+        IFS=$NL
+        for _row in $_all; do
+            case "$_row" in
+                *",$_wan,"*) _hit=$_row ; break ;;
+            esac
+        done
+        IFS=$_cg_keepifs
+        set +f
+        if [ -n "$_hit" ]; then
+            printf '%s\n\nOK\n' "$_hit"
+            return 0
+        fi
+    fi
+    # No match (or no route yet): pass every row through unchanged, which is
+    # what the parser expects.
+    printf '%s\n' "$_all"
+}
+
+# ---------------------------------------------------------------------------
+# AT+QTEMP — pass through, and if the modem has no such command fall back to
+# the thermal framework (parse_temperature already prefers +QTEMP, then sysfs;
+# emitting both keeps a single source of truth per cycle).
+# ---------------------------------------------------------------------------
+emit_qtemp() {
+    at_fetch 'AT+QTEMP'
+    _t=$_AT_OUT
+    case "$_t" in
+        *ERROR*|'')
+            _best=""
+            for _z in "${QM_THERMAL_DIR:-/sys/class/thermal}"/thermal_zone*; do
+                [ -r "$_z/temp" ] || continue
+                _ty=""
+                read -r _ty 2>/dev/null < "$_z/type"
+                case "$_ty" in modem*|*mdm*|*modem*) ;; *) continue ;; esac
+                _v=""
+                read -r _v 2>/dev/null < "$_z/temp"
+                case "$_v" in ''|*[!0-9-]*) continue ;; esac
+                _c=$(( (_v + 500) / 1000 ))
+                [ "$_c" -le -40 ] && continue
+                [ "$_c" -eq 0 ] && continue
+                [ -z "$_best" ] && _best="$_c"
+            done
+            if [ -n "$_best" ]; then
+                printf '+QTEMP: "modem-0",%s\n\nOK\n' "$_best"
+            else
+                printf 'ERROR\n'
+            fi
+            ;;
+        *) printf '%s\n' "$_t" ;;
+    esac
+}
+
+# ---------------------------------------------------------------------------
+# AT+QNWPREFCFG="policy_band"  <-  AT+CSYSSEL
+# parse_policy_band greps lines containing "lte_band" / "nr5g_band" /
+# "nsa_nr5g_band" and takes everything after the quoted key. SIMCom returns a
+# colon-separated band list, which is exactly the shape the parser stores.
+# ---------------------------------------------------------------------------
+emit_policy_band() {
+    at_fetch 'AT+CSYSSEL="lte_band"'
+    at_line_value "$_AT_OUT" '+CSYSSEL: "lte_band",'
+    printf '+QNWPREFCFG: "lte_band",%s\n' "$_LINE_VALUE"
+    at_fetch 'AT+CSYSSEL="nsa_nr5g_band"'
+    at_line_value "$_AT_OUT" '+CSYSSEL: "nsa_nr5g_band",'
+    printf '+QNWPREFCFG: "nsa_nr5g_band",%s\n' "$_LINE_VALUE"
+    at_fetch 'AT+CSYSSEL="nr5g_band"'
+    at_line_value "$_AT_OUT" '+CSYSSEL: "nr5g_band",'
+    printf '+QNWPREFCFG: "nr5g_band",%s\n\nOK\n' "$_LINE_VALUE"
+}
+
+# AT+QNWPREFCFG="<band key>"  <-  AT+CSYSSEL="<band key>"   (single key read)
+#
+# The single-key read used to fall into the "unmodelled key" branch and answer
+# an EMPTY value, which reads as "no bands selected" -- the one wrong answer
+# worse than an error, because it makes the picker render every box unticked.
+#
+# The band keys are the same vocabulary SIMCom uses, so this is a rename.
+emit_band_key() {
+    _bk=$1
+    at_fetch "AT+CSYSSEL=\"$_bk\""
+    at_line_value "$_AT_OUT" "+CSYSSEL: \"$_bk\","
+    _bv=$_LINE_VALUE
+    if [ -z "$_bv" ]; then
+        printf 'ERROR\n'
+        return 0
+    fi
+    printf '+QNWPREFCFG: "%s",%s\n\nOK\n' "$_bk" "$_bv"
+}
+
+# ---------------------------------------------------------------------------
+# AT+QNWPREFCFG="lte_band",<list>  ->  AT+CSYSSEL="lte_band",<list>
+#
+# THE BAND LOCK WRITE. Without it the cell-locking page's Apply button reported
+# "Failed to send band lock command" on every band, forever: set_qnwprefcfg knew
+# only rat_acq_order/mode_pref, so the write fell to `*) ERROR`, qcmd exited 1,
+# and lock.sh turned that into modem_error. The read half already worked, which
+# is why the page rendered the current selection and only the write failed.
+#
+# Encoding: Quectel's band list is a hex BITMASK, SIMCom's is the colon list the
+# read returns. QManager sends the colon list (bands/lock.sh), so the value
+# translates verbatim -- and a caller that sends a bare bitmask number is
+# refused rather than reinterpreted, because the same digits mean a different
+# set of bands on each side.
+#
+# Every band is checked against the modem's own capability answer first. An
+# unsupported band is normally answered OK and then silently never attaches:
+# a green "Locked" toast with no service is worse than a red error, and this is
+# the page reached by someone already trying to fix a bad connection.
+set_band_selection() {
+    _bk=$1
+    _bv=$2
+
+    # shape: colon-delimited positive integers, no empty element
+    case "$_bv" in
+        ''|:*|*:|*::*) printf 'ERROR\n'; return 0 ;;
+    esac
+    case "$_bv" in
+        *[!0-9:]*) printf 'ERROR\n'; return 0 ;;
+    esac
+
+    at_fetch 'AT+CSYSSEL=?'
+    _cap=$_AT_OUT
+    at_line_value "$_cap" "+CSYSSEL: \"$_bk\","
+    _have=$_LINE_VALUE
+    if [ -n "$_have" ]; then
+        set -f
+        _bs_oldifs=$IFS
+        IFS=:
+        for _b in $_bv; do
+            IFS=$_bs_oldifs
+            set +f
+            case ":$_have:" in
+                *":$_b:"*) ;;
+                *)  printf 'ERROR\nband %s is not supported by this modem (%s)\n' "$_b" "$_bk"
+                    return 0 ;;
+            esac
+            set -f
+            IFS=:
+        done
+        IFS=$_bs_oldifs
+        set +f
+    fi
+
+    at_raw "AT+CSYSSEL=\"$_bk\",$_bv"
+}
+
+# ---------------------------------------------------------------------------
+# AT+QNWPREFCFG="mode_pref"  <-  AT+CNMP?
+# QManager's vocabulary: AUTO | LTE | NR5G | NR5G:LTE
+# SIMCom's vocabulary:   a numeric acquisition-order enum
+# ---------------------------------------------------------------------------
+emit_mode_pref() {
+    at_fetch 'AT+CNMP?'
+    at_line_value "$_AT_OUT" '+CNMP:'
+    _n=$_LINE_VALUE
+    case "$_n" in
+        38)  _v="LTE" ;;        # LTE only
+        109) _v="NR5G" ;;       # NR5G only
+        2)   _v="AUTO" ;;       # automatic
+        *)   _v="AUTO" ;;
+    esac
+    printf '+QNWPREFCFG: "mode_pref",%s\n\nOK\n' "$_v"
+}
+
+# AT+QNWPREFCFG="nr5g_disable_mode" <- AT+CSYSSEL="nr5g_disable"  (same 0/1/2)
+emit_nr5g_disable() {
+    at_fetch 'AT+CSYSSEL="nr5g_disable"'
+    at_line_value "$_AT_OUT" '+CSYSSEL: "nr5g_disable",'
+    _v=$_LINE_VALUE
+    [ -n "$_v" ] || _v=0
+    printf '+QNWPREFCFG: "nr5g_disable_mode",%s\n\nOK\n' "$_v"
+}
+
+# AT+QNWPREFCFG="ue_capability_band" <- AT+CSYSSEL=? (the modem's supported set).
+# Bands/current.sh needs this to render the band picker at all.
+emit_ue_capability() {
+    # THE THREE KEYS MUST CARRY THE CAPABILITY, not the policy.
+    #
+    # The previous version printed the capability line and then delegated to
+    # emit_policy_band, so the same response carried capability under
+    # "ue_capability_band" and POLICY under "lte_band"/"nsa_nr5g_band"/
+    # "nr5g_band". Every consumer in QManager parses by key, so they all read
+    # the policy: qmanager_poller stores it as `supported_lte_bands`, the
+    # cell-locking page builds its band picker from that, and the result is a
+    # grid that offers only the bands already enabled -- which is exactly the
+    # reported symptom (LTE 1:3:5:41 instead of the modem's 19 bands).
+    #
+    # AT+CSYSSEL=? is the capability source and it covers every category:
+    #   +CSYSSEL: "lte_band",1:3:5:7:8:<mac-redacted>:<mac-redacted>:46:48
+    #   +CSYSSEL: "nsa_nr5g_band",1:3:5:7:8:<mac-redacted>:48:77:78:79
+    #   +CSYSSEL: "nr5g_band",1:3:5:7:8:<mac-redacted>:48:77:78:79
+    #   +CSYSSEL: "nrdc_nr5g_band",...            (not a QManager category)
+    at_fetch 'AT+CSYSSEL=?'
+    _cap=$_AT_OUT
+    at_line_value "$_cap" '+CSYSSEL: "lte_band",'      ; _clte=$_LINE_VALUE
+    at_line_value "$_cap" '+CSYSSEL: "nsa_nr5g_band",' ; _cnsa=$_LINE_VALUE
+    # "nr5g_band" also appears inside "nsa_nr5g_band"/"nrdc_nr5g_band", and
+    # at_line_value matches on the LINE PREFIX, so this reads the right one.
+    at_line_value "$_cap" '+CSYSSEL: "nr5g_band",'      ; _csa=$_LINE_VALUE
+    # No capability answer at all: fall back to the policy rather than inventing
+    # a band list, so the picker shows what the modem will actually accept.
+    if [ -z "$_clte" ]; then
+        emit_policy_band
+        return 0
+    fi
+    [ -n "$_cnsa" ] || _cnsa=$_clte
+    [ -n "$_csa" ]  || _csa=$_clte
+    printf '+QNWPREFCFG: "ue_capability_band",%s\n' "$_clte"
+    printf '+QNWPREFCFG: "lte_band",%s\n' "$_clte"
+    printf '+QNWPREFCFG: "nsa_nr5g_band",%s\n' "$_cnsa"
+    printf '+QNWPREFCFG: "nr5g_band",%s\n\nOK\n' "$_csa"
+}
+
+# AT+QNWPREFCFG="rat_acq_order" <- AT+CNMP?
+# cellular/network_priority.sh needs an order string (LTE:NR5G:WCDMA ...).
+emit_rat_order() {
+    at_fetch 'AT+CNMP?'
+    at_line_value "$_AT_OUT" '+CNMP:'
+    _n=$_LINE_VALUE
+    case "$_n" in
+        38)  _v="LTE" ;;
+        109) _v="NR5G" ;;
+        *)   _v="LTE:NR5G:WCDMA" ;;
+    esac
+    printf '+QNWPREFCFG: "rat_acq_order",%s\n\nOK\n' "$_v"
+}
+
+# Writing network mode is the one setting that maps cleanly onto this modem:
+# AUTO -> CNMP=2, LTE -> CNMP=38, NR5G -> CNMP=109. Everything else is refused
+# rather than silently accepted, so the UI reports a real failure.
+set_qnwprefcfg() {
+    # These MUST be local.
+    #
+    # `_rest` is the compound-chain loop's GLOBAL (see the `;` split at the bottom
+    # of this file: `_rest=$1` then `_tok=${_rest%%;*}` / `_rest=${_rest#*;}`).
+    # Writing this command's remainder into the global made the loop run one
+    # extra iteration on the leftover text, which matched nothing and fell
+    # through to `at_raw` -> spurious `ERROR`.
+    #
+    # Net effect, measured on the X16 2026-10-27: every QNWPREFCFG write
+    # (mode_pref, rat_acq_order, lte_band/nsa_nr5g_band/nr5g_band) answered
+    # "OK" and then "ERROR". qcmd classifies any *ERROR* as command_failed, so
+    # a write that had SUCCEEDED at the modem was reported to the UI as a
+    # failure -- e.g. `qcmd 'AT+QNWPREFCFG="mode_pref",AUTO'` exited 1 with
+    # "ERROR: command_failed" while AT+CNMP=2 had already been applied.
+    # Found by the Rust port's byte-parity test (native/qmanager_x16), which
+    # diffs the shim's output against the port's.
+    local _rest _key _val
+    _rest=${1#AT+QNWPREFCFG=}
+    _key=${_rest%%,*}
+    _val=${_rest#*,}
+    at_unquote "$_key"
+    _key=$_UNQUOTED
+    case "$_key" in
+        # The band lock writes. Named keys only: policy_band and
+        # ue_capability_band are answers, not settings, and are refused here.
+        lte_band|nsa_nr5g_band|nr5g_band|nrdc_nr5g_band|w_band)
+            set_band_selection "$_key" "$_val" ;;
+        rat_acq_order|rat_order_pref)
+            at_unquote "$_val"
+            case "${_UNQUOTED%%:*}" in
+                LTE|WCDMA|GSM) at_raw 'AT+CNMP=38' ;;
+                NR5G|NR)       at_raw 'AT+CNMP=109' ;;
+                AUTO|auto)     at_raw 'AT+CNMP=2' ;;
+                *) printf 'ERROR\n' ;;
+            esac
+            ;;
+        mode_pref)
+            at_unquote "$_val"
+            case "$_UNQUOTED" in
+                AUTO|auto)        at_raw 'AT+CNMP=2'   ;;
+                LTE|lte)          at_raw 'AT+CNMP=38'  ;;
+                NR5G|nr5g)        at_raw 'AT+CNMP=109' ;;
+                NR5G:LTE|NR5G:LTE:|nr5g:lte) at_raw 'AT+CNMP=2' ;;
+                *) printf 'ERROR\n' ;;
+            esac
+            ;;
+        *) printf 'ERROR\n' ;;
+    esac
+}
+
+# ---------------------------------------------------------------------------
+# SIMCom LTE cell lock compatibility.
+# Vendor firmware identifies the native operation as AT+CCELLCFG=1,<pci>,<freq>
+# and its readback as AT+CCELLCFG? -> +CCELLCFG: <pci>,<freq>. The factory UI
+# labels <freq> EARFCN. The userland lock UI's QNWLOCK shape is frequency then
+# PCI; translate only one LTE cell and refuse NR/multi-cell/persistence forms.
+# No lock write is sent here unless a caller explicitly requests one.
+# ---------------------------------------------------------------------------
+emit_qnwlock_lte_status() {
+    at_fetch 'AT+CCELLCFG?'
+    _native=$_AT_OUT
+    at_line_value "$_native" '+CCELLCFG:'
+    _line=$_LINE_VALUE
+    [ -n "$_line" ] || { printf 'ERROR\n'; return 0; }
+    at_despace "$_line"
+    _params=$_DESPACED
+    case "$_params" in
+        0,0) printf '+QNWLOCK: "common/4g",0\n\nOK\n' ;;
+        *','*)
+            _pci=${_params%%,*}
+            _earfcn=${_params#*,}
+            case "$_pci" in ''|*[!0-9]*) printf 'ERROR\n'; return 0 ;; esac
+            case "$_earfcn" in ''|*[!0-9]*|*,*) printf 'ERROR\n'; return 0 ;; esac
+            printf '+QNWLOCK: "common/4g",1,%s,%s\n\nOK\n' "$_earfcn" "$_pci"
+            ;;
+        *) printf 'ERROR\n' ;;
+    esac
+}
+
+run_qnwlock_lte_write() {
+    _pair=$1
+    case "$_pair" in *,*) ;; *) printf 'ERROR\n'; return 0 ;; esac
+    _earfcn=${_pair%%,*}
+    _pci=${_pair#*,}
+    case "$_earfcn" in ''|*[!0-9]*) printf 'ERROR\n'; return 0 ;; esac
+    case "$_pci" in ''|*[!0-9]*|*,*) printf 'ERROR\n'; return 0 ;; esac
+    [ "$_pci" -le 503 ] 2>/dev/null || { printf 'ERROR\n'; return 0; }
+    [ "$_earfcn" -le 16777215 ] 2>/dev/null || { printf 'ERROR\n'; return 0; }
+    # SIMCom's argument order is PCI then EARFCN; QManager's is the reverse.
+    at_raw "AT+CCELLCFG=1,$_pci,$_earfcn"
+}
+
+# AT+EGMR=1,7,"<imei>"  ->  AT+SIMEI=<imei>   (identity write)
+#
+# The only place this shim can change persistent modem state, so the value is
+# re-validated here even though cellular/imei.sh already rejected anything that
+# is not 15 digits with a valid check digit: a write that reaches the modem is
+# not undoable by redeploying software, and qcmd is reachable from a shell.
+#
+# Exactly 15 ASCII digits and nothing else -- no padding, no sign, no spaces,
+# and an empty or truncated value answers ERROR without touching the daemon.
+run_simei_write() {
+    _imei=$1
+    _imei=${_imei%\"}                       # strip the closing quote
+    # Reject the all-zero / all-F placeholder IMEIs as well: some vendor tools
+    # write them as a "blank", which bricks identity until a factory reset.
+    case "$_imei" in
+        000000000000000|111111111111111|999999999999999) printf 'ERROR\n' ;;
+        [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9])
+            at_raw "AT+SIMEI=$_imei" ;;
+        *)  printf 'ERROR\n' ;;
+    esac
+}
+
+# AT+QNWCFG="lte_mimo_layers" / "nr5g_mimo_layers"  <-  the vendor devinfo store
+#
+# The "Active MIMO" tile renders `device.mimo`, which only parse_mimo fills, and
+# parse_mimo only understands the Quectel answer:
+#     +QNWCFG: "lte_mimo_layers",<ul>,<dl>     -> "LTE 1x2 | NR 2x4"
+# SIMCom has no QNWCFG at all, so the old catch-all answered a bare OK, the
+# parser found no line, and the tile said "Unavailable" on a link that is
+# demonstrably 2x2.
+#
+# Source: /tmp/.devinfo_module_data carries `lte_rank` and `nr_rank` -- the rank
+# the modem reports, which is the DL layer count. The store's own MIMO_STATUS
+# key exists but is empty on this unit, so it is not used here.
+#
+# UL is emitted as 1 layer, and that is a documented inference, not a reading:
+# this UE does not report UL layers, and single-layer UL is the norm for LTE
+# without SRS-based UL MIMO. If a real UL figure ever becomes available it
+# belongs in field 1; do not silently "improve" it to equal the DL rank, which
+# would claim 2x2 UL that the radio never claimed.
+emit_qnwcfg_mimo() {
+    _want=$1
+    _file=$DEVINFO
+    case "$_want" in
+        lte) _key=lte_rank ; _name=lte_mimo_layers ;;
+        nr)  _key=nr_rank  ; _name=nr5g_mimo_layers ;;
+        *)   printf 'OK\n' ; return 0 ;;
+    esac
+    # Fork-free read of `<key>:<value>` out of the vendor store (was
+    # sed | head | tr — three forks on a path the dashboard hits every cycle).
+    _rank=''
+    if [ -r "$_file" ]; then
+        while IFS= read -r _ml || [ -n "$_ml" ]; do
+            case "$_ml" in
+                "$_key:"*)
+                    at_rtrim "${_ml#"$_key:"}"
+                    at_despace "$_TRIMMED"
+                    _rank=$_DESPACED
+                    break ;;
+            esac
+        done 2>/dev/null < "$_file"
+    fi
+    case "$_rank" in
+        ''|*[!0-9]*) printf 'OK\n' ; return 0 ;;
+    esac
+    if [ "$_rank" -lt 1 ] || [ "$_rank" -gt 8 ]; then
+        printf 'OK\n'
+        return 0
+    fi
+    printf '+QNWCFG: "%s",1,%s\n\nOK\n' "$_name" "$_rank"
+}
+
+# AT+QNWCFG="lte_time_advance"  <-  QMI NAS cell location info
+#
+# The dashboard's "LTE Cell Distance" row reads `lte.ta`, which only
+# parse_time_advance fills, and that understands only the Quectel line
+# `+QNWCFG: "lte_time_advance",<en>,<ta_index>`. SIMCom has no QNWCFG, so the
+# catch-all answered OK, `lte_ta` stayed empty and the row was permanently blank
+# (`.qmanager_poller:2121`/`:2138` issue the read and have no fallback).
+#
+# QMI is the source that does work here, and it needs no AT lock:
+#   qmicli -d qrtr://3 --nas-get-cell-location-info  ->  LTE Timing Advance: '8' us
+#
+# UNIT CONVERSION -- the easy thing to get wrong. `calculateLteDistance` takes a
+# TA INDEX, QMI reports microseconds, and one index is 16*Ts = 16/30720000 s =
+# 0.520833 us. Feeding the microseconds straight in would under-report distance
+# by 1.92x. The factor is confirmed by the two routes agreeing:
+#   3e8 * 16*15.36 / 30720000 / 2 = 1.20 km   (index 15.36)
+#   c * 8us / 2                  = 1.20 km   (direct)
+#
+# NR has no source on this box: libqmi 1.34.0 has no NR timing advance (checked
+# in the binary), the vendor store has none, and AT+QNWCFG does not exist. That
+# arm stays a bare OK so the NR distance row honestly says "not reported"
+# instead of showing a fabricated number.
+emit_qnwcfg_time_advance() {
+    _qc=$QMI_BIN
+    _ql=$QMI_LIBDIR
+    if [ ! -x "$_qc" ]; then
+        printf 'OK\n'
+        return 0
+    fi
+    # Bounded: this runs inside the AT request path, and the daemon has no
+    # timeout of its own. A missing answer is "no reading", never an error the
+    # caller has to distinguish.
+    _us=$(LD_LIBRARY_PATH="$_ql" timeout 5 "$_qc" -d "$QMI_DEV" \
+              --nas-get-cell-location-info 2>/dev/null \
+          | sed -n "s/.*LTE Timing Advance: '\([0-9][0-9]*\)'.*/\1/p" | head -1)
+    case "$_us" in
+        ''|*[!0-9]*)
+            printf 'OK\n'
+            return 0
+            ;;
+    esac
+    # round(us * 30720000 / 16 / 1e6) = round(us * 1.92)
+    _ta=$(( (_us * 192 + 50) / 100 ))
+    # Same bounds calculateLteDistance enforces; TA index 0 means "no data".
+    if [ "$_ta" -lt 1 ] || [ "$_ta" -gt 1282 ]; then
+        printf 'OK\n'
+        return 0
+    fi
+    printf '+QNWCFG: "lte_time_advance",1,%s\n\nOK\n' "$_ta"
+}
+
+# ---------------------------------------------------------------------------
+# one command -> one response
+# ---------------------------------------------------------------------------
+run_one() {
+    _cmd=$1
+
+    # Compound continuations arrive as bare "+X" tokens; restore the AT prefix.
+    case "$_cmd" in
+        +*) _cmd="AT$_cmd" ;;
+    esac
+    # atcmd has no interactive entry mode: a bare AT+CMGS would hang the broker.
+    case "$_cmd" in
+        AT+CMGS*|AT+CMGW*) printf 'ERROR\n'; return 0 ;;
+    esac
+
+    case "$_cmd" in
+        'AT+QENG="neighbourcell"')             at_raw 'AT+QENG="neighbourcell"' ;;
+        'AT+QENG="servingcell"'|AT+QENG*)      emit_qeng ;;
+        'AT+QNWLOCK="common/4g"')              emit_qnwlock_lte_status ;;
+        'AT+QNWLOCK="common/4g",0')            at_raw 'AT+CCELLCFG=0' ;;
+        'AT+QNWLOCK="common/4g",1,'*)          run_qnwlock_lte_write "${_cmd#AT+QNWLOCK=\"common/4g\",1,}" ;;
+        'AT+QNWLOCK="common/4g",'[2-9]*)        printf 'ERROR\nmulti-cell lock unsupported: this device supports one LTE cell\n' ;;
+        AT+QNWLOCK*)                            printf 'ERROR\n' ;; 
+        AT+QCAINFO=0|AT+QCAINFO=1)             printf 'OK\n' ;;
+        AT+QCAINFO)                            emit_qcainfo ;;
+        AT+QCCID)
+            # Rewrite the +ICCID prefix on every line that carries it, exactly as
+            # `sed 's/^+ICCID:/+QCCID:/'` did, with no fork.
+            at_fetch 'AT+CICCID'
+            set -f
+            _qc_keepifs=$IFS
+            IFS=$NL
+            for _qc in $_AT_OUT; do
+                IFS=$_qc_keepifs
+                case "$_qc" in
+                    '+ICCID:'*) printf '+QCCID:%s\n' "${_qc#+ICCID:}" ;;
+                    *)          printf '%s\n' "$_qc" ;;
+                esac
+                IFS=$NL
+            done
+            IFS=$_qc_keepifs
+            set +f
+            ;;
+        AT+CVERSION)                           emit_cversion ;;
+        AT+CGCONTRDP|AT+CGCONTRDP=0)           emit_cgcontrdp ;;
+        AT+QTEMP)                              emit_qtemp ;;
+        AT+QNWPREFCFG=\"policy_band\"|AT+QNWPREFCFG=) emit_policy_band ;;
+        AT+QNWPREFCFG=\"lte_band\"|AT+QNWPREFCFG=\"nsa_nr5g_band\"|AT+QNWPREFCFG=\"nr5g_band\"|AT+QNWPREFCFG=\"w_band\")
+            _bk_arg=${_cmd#AT+QNWPREFCFG=\"}
+            emit_band_key "${_bk_arg%\"}" ;;
+        AT+QNWPREFCFG=\"mode_pref\")           emit_mode_pref ;;
+        AT+QNWPREFCFG=\"nr5g_disable_mode\")   emit_nr5g_disable ;;
+        AT+QNWPREFCFG=\"roam_pref\")           printf '+QNWPREFCFG: "roam_pref",1\n\nOK\n' ;;
+        AT+QNWPREFCFG=\"rat_acq_order\"|AT+QNWPREFCFG=\"rat_order_pref\") emit_rat_order ;;
+        AT+QNWPREFCFG=\"ue_capability_band\")  emit_ue_capability ;;
+        AT+QNWPREFCFG,*)                        set_qnwprefcfg "$_cmd" ;;
+        AT+QNWPREFCFG=*)
+            # Quoted key with no value = a read we do not model. Answer with an
+            # empty value so the panel renders "unknown" instead of failing.
+            case "$_cmd" in
+                *,*) set_qnwprefcfg "$_cmd" ;;
+                *)   _k=${_cmd#AT+QNWPREFCFG=}; at_unquote "$_k"; _k=$_UNQUOTED
+                     printf '+QNWPREFCFG: "%s",\n\nOK\n' "$_k" ;;
+            esac
+            ;;
+        AT+QNWPREFCFG)                          emit_policy_band ;;
+        AT+QSIMDET*|AT+QSIMCFG*)                printf '+QSIMDET: 0,1\n\nOK\n' ;;
+        AT+QUIMSLOT?|AT+QUIMSLOT)              printf '+QUIMSLOT: 1\n\nOK\n' ;;
+        AT+EGMR=0,7)                           at_raw 'AT+CGSN' ;;
+        # Quectel identity write -> SIMCom. The SIM8260E has no AT+EGMR write;
+        # it uses AT+SIMEI=<digits> (unquoted). The vendor dialer reads identity
+        # with AT+SIMEI? -- firmware-analysis/dialer.strings:2953-2954 -- and the
+        # vendor UI has no identity form at all: its only path is a raw AT
+        # console, which is strictly less safe than this validated one.
+        AT+EGMR=1,7,\"*) run_simei_write "${_cmd#AT+EGMR=1,7,\"}" ;;
+        AT+EGMR=1,*)                           printf 'ERROR\n' ;;   # wrong record/pair
+        AT+QSIMSTAT?|AT+QSIMSTAT)              printf '+QSIMSTAT: 1,1\n\nOK\n' ;;
+        AT+QRSRP|AT+QRSRP\?) emit_antenna_native QRSRP ;;
+        AT+QRSRQ|AT+QRSRQ\?) emit_antenna_unavailable QRSRQ ;;
+        AT+QSINR|AT+QSINR\?) emit_antenna_native QSINR ;;
+        AT+QNWCFG=\"lte_time_advance\"*) emit_qnwcfg_time_advance ;;
+        AT+QNWCFG=\"nr5g_time_advance\"*) printf 'OK\n' ;;
+        AT+QNWCFG=\"lte_mimo_layers\"*) emit_qnwcfg_mimo lte ;;
+        AT+QNWCFG=\"nr5g_mimo_layers\"*) emit_qnwcfg_mimo nr ;;
+        AT+QNWCFG*|AT+QGETCAPABILITY*|AT+QMAP*|AT+QNWINFO*|AT+QCSQ*) printf 'OK\n' ;;
+        *)
+            # Anything we do not translate: hand it to the modem verbatim.
+            at_raw "$_cmd"
+            ;;
+    esac
+}
+
+# ---------------------------------------------------------------------------
+# split a `;`-compound chain, run each part in order
+# ---------------------------------------------------------------------------
+_rest=$1
+_done=0
+while [ -n "$_rest" ]; do
+    case "$_rest" in
+        *';'*) _tok=${_rest%%;*} ; _rest=${_rest#*;} ;;
+        *)     _tok=$_rest      ; _rest='' ;;
+    esac
+    [ -n "$_tok" ] || continue
+    run_one "$_tok"
+    # --peek stops at the first part it cannot answer. Partial output is never
+    # used by the caller (it must look at the exit code first), and stopping here
+    # keeps a stale part from being papered over by a later one.
+    [ "$PEEK" = 1 ] && [ "$_AT_STALE" = 1 ] && exit 3
+    _done=1
+done
+
+[ "$_done" = "1" ] || printf 'ERROR\n'
+[ "$PEEK" = 1 ] && [ "$_AT_STALE" = 1 ] && exit 3
+exit 0

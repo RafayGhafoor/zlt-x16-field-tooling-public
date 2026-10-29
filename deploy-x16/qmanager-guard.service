@@ -1,0 +1,36 @@
+# /etc/systemd/system/qmanager-guard.service
+#
+# Runs `/etc/initscripts/start_qmanager ensure` once a minute: any QManager unit
+# that is `enabled` but not `active` is started again, and the fact is logged.
+#
+# WHY THIS EXISTS (measured 2026-10-26)
+#   A unit that is enabled and running can still be stopped by something that is
+#   not the boot hook. On this device `qmanager-poller` was found
+#   `inactive (dead) … Process: (code=killed, signal=TERM)` two minutes after a
+#   reboot and stayed dead: `Restart=always` does not undo an explicit
+#   `systemctl stop`, and the only code in the QManager tree that stops the poller
+#   is `qmanager_health_check`'s pause/resume around its AT-contending diagnostics —
+#   whose "resume" half is a trap in the process that was just torn down with the
+#   unit's cgroup. The visible damage was a stale `/tmp/qmanager_status.json`: the
+#   UI kept rendering the last sample as if it were live.
+#
+#   Whatever the actor is, the contract the UI depends on is "these four units are
+#   up". This asserts it instead of trusting it, and its log line timestamps the
+#   next occurrence for the diagnosis nobody got this time.
+#
+# COST when healthy: one `systemctl is-active` per unit, no forks, no writes.
+#
+# KillMode is left at the default: unlike the SmartDNS wiring guard, this unit
+# starts no daemons — `systemctl start` hands them to systemd, not to this cgroup.
+
+[Unit]
+Description=QManager unit healer (restarts an enabled-but-stopped unit)
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+ExecStart=/etc/initscripts/start_qmanager ensure
+StandardOutput=null
+StandardError=null
+TimeoutStartSec=120
+Nice=15

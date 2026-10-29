@@ -1,0 +1,34 @@
+# /etc/systemd/system/zlt-atcmd-guard.service
+#
+# One run of the atcmd_daemon health guard (router-fix/atcmd-guard).
+#
+# WHY THIS EXISTS (decompiled + measured 2026-10-29, docs/38 §1)
+#   atcmd_daemon reads indications (call state, SMS delivery, USSD) from
+#   /dev/smd9 in read_tty_thread. On a read error that thread closes the fd and
+#   loops `open("/dev/smd3")` — a node this firmware does NOT have — forever, and
+#   without logging. AT keeps answering, so every UI panel looks healthy while
+#   nothing arrives on the indication stream. Nothing supervises that thread: the
+#   daemon is started from /etc/initscripts/start_atcmd_daemon, not from a unit,
+#   so it has no Restart= and no supervisor.
+#
+# COST when healthy: one pgrep, one directory read of /proc/<pid>/fd, one
+# /proc/uptime read. No forks, no writes, no AT traffic (an AT probe every minute
+# would be exactly the cost docs/34 argues against).
+#
+# KillMode=process is REQUIRED, not cosmetic: the recovery spawns the daemon with
+# `setsid`, and the default KillMode=control-group would kill it the moment this
+# oneshot unit finishes — leaving AT down. (The SmartDNS wiring guard carries the
+# same note for the same reason.)
+
+[Unit]
+Description=atcmd_daemon URC-thread / process health guard
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+ExecStart=/data/zlt-atcmd-guard/guard.sh
+StandardOutput=null
+StandardError=null
+TimeoutStartSec=120
+Nice=15
+KillMode=process

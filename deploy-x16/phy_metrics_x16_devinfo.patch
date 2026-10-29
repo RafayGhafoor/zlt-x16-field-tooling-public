@@ -1,0 +1,182 @@
+--- a/phy_metrics.sh	2026-10-26 15:57:03
++++ b/phy_metrics.sh	2026-10-26 19:39:06
+@@ -235,7 +235,11 @@
+     local bin out rc
+     bin=$(_qm_phy_ubus)
+     if [ -z "$bin" ]; then
+-        return 2
++        # No ubus on this firmware. The vendor devinfo store answers the same
++        # question for the one key Tier 3 takes from modemd (`registered`);
++        # when it cannot, this returns its non-zero and nothing changes.
++        qm_phy_x16_modemd
++        return $?
+     fi
+     _qm_phy_capture "$QM_PHY_TIMEOUT" "$bin" call modemd status
+     rc=$?
+@@ -247,6 +251,99 @@
+     [ -n "$out" ] || return 4
+     printf '%s\n' "$out"
+     return 0
++}
++
++# =============================================================================
++# SOURCE 1b — the vendor devinfo store (ZLT X16 / SIMCom SIM8260E)
++# =============================================================================
++# This firmware has no ubus and no modemd, and the AT half below speaks
++# AT+QNWCFG, which is Quectel: SIMCom has no such command, so both halves of
++# Tier 3 returned nothing and every PHY figure except the Tier-1 basics
++# published null while the stock UI showed CQI, RI and MCS.
++#
++# Those numbers do exist, in the vendor dialer's own dump of its devinfo table:
++# /tmp/.devinfo_module_data, world-readable, rewritten about once a second, with
++# the stock UI's own field names (CQI, CQI_5G, lte_rank, nr_rank, DL_MCS_5G,
++# network_type_str, sim_status...). Reading it costs one `cat` and no AT lock,
++# unlike AT+SPENGMD=0,0,6 -- the dialer's real source, served only on its
++# private channel and answered with ERROR through atcmd_daemon.
++#
++# Everything here FAILS SOFT: a missing or stale file returns non-zero and the
++# caller keeps exactly today's behaviour. A stale file is not a reading, and an
++# absent value is null, never 0.
++#
++# QM_PHY_DEVINFO_TTL is deliberately short: the dialer rewrites the file ~1 Hz,
++# so 30 s old means the dialer has stopped and the values are history.
++QM_PHY_DEVINFO_FILE="${QM_PHY_DEVINFO_FILE:-/tmp/.devinfo_module_data}"
++QM_PHY_DEVINFO_TTL="${QM_PHY_DEVINFO_TTL:-30}"
++
++# 0 fresh, 2 absent/unreadable/undatable, 3 stale
++_qm_phy_devinfo() {
++    [ -r "$QM_PHY_DEVINFO_FILE" ] || return 2
++    local m
++    m=$(date -r "$QM_PHY_DEVINFO_FILE" +%s 2>/dev/null) || return 2
++    case "$m" in ''|*[!0-9]*) return 2 ;; esac
++    [ $(( $(date +%s) - m )) -le "$QM_PHY_DEVINFO_TTL" ] || return 3
++    cat "$QM_PHY_DEVINFO_FILE"
++}
++
++# devinfo -> the modemd-shaped object. ONLY `registered` is taken from here,
++# because that key is modemd-only in QM_PHY_SNAPSHOT_JQ and would otherwise stay
++# null on a box that is plainly attached. sim_status==1 plus a non-empty
++# network_type_str is the same pair the vendor UI labels "connected"; a missing
++# key yields null rather than a fabricated false.
++qm_phy_x16_modemd() {
++    local jq
++    _qm_phy_devinfo >/dev/null || return $?
++    jq=$(_qm_phy_jq) || return 2
++    _qm_phy_devinfo | "$jq" -R -s -c '
++      [ split("\n")[] | select(test("^[A-Za-z0-9_]+:"))
++        | capture("^(?<k>[A-Za-z0-9_]+):(?<v>.*)$") | {key:.k, value:.v} ] | from_entries as $d
++      | def num($k): ($d[$k] // "") | if test("^[0-9]+$") then tonumber else null end;
++      {registered: (if ($d.sim_status // "") == "" then null
++                    elif ($d.sim_status == "1") and ((($d.network_type_str // "") | length) > 0)
++                    then true
++                    # sim_status PRESENT and not "1" -> definitively not
++                    # registered, which is a fact worth publishing. Only a
++                    # MISSING sim_status is unknown (null). Collapsing both to
++                    # null hides a no-SIM/no-registration condition behind
++                    # "not reported" -- caught by tests/unit_phy_devinfo.sh.
++                    else false end),
++         carrier: null, rat: null, cqi: num("CQI"), nr_cqi: num("CQI_5G"),
++         # The rank IS the DL layer count, and MIMO_STATUS is empty on this unit,
++         # so rank is the only honest source for the MIMO Layers row. Filled here
++         # as well as in the shim because this object is the reliable path: the
++         # AT compound that carries the same number can be cut short by the
++         # per-call timeout on a busy cycle.
++         lte_mimo_layers: num("lte_rank"), nr_mimo_layers: num("nr_rank"),
++         lte_tm_mode: null,
++         lte_rank: num("lte_rank"), nr_rank: num("nr_rank")}'
++}
++
++# devinfo -> the AT-shaped object, so QM_PHY_AT_AWK's output contract and
++# QM_PHY_SNAPSHOT_JQ need no change at all.
++#
++# Range gates are the point: the store writes 0 for "not reported" in CQI/RI
++# (CQI 1-15, RI 1-8) but 0 is a REAL MCS index, so MCS keeps 0 and CQI does not.
++qm_phy_x16_at() {
++    local jq
++    _qm_phy_devinfo >/dev/null || return $?
++    jq=$(_qm_phy_jq) || return 2
++    _qm_phy_devinfo | "$jq" -R -s -c '
++      [ split("\n")[] | select(test("^[A-Za-z0-9_]+:"))
++        | capture("^(?<k>[A-Za-z0-9_]+):(?<v>.*)$") | {key:.k, value:.v} ] | from_entries as $d
++      | def num($k; lo; hi): ($d[$k] // "") | if test("^-?[0-9]+$") then tonumber else null end
++                              | if type == "number" and . >= lo and . <= hi then . else null end;
++        def nt: ($d.network_type_str // "");
++      {lte: {cqi: num("CQI"; 1; 15), ri: num("lte_rank"; 1; 8), pmi: null,
++             mimo_layers: null, tm_mode: null, ul_mcs: num("UL_MCS"; 0; 31)},
++       nr:  {cqi: num("CQI_5G"; 1; 15), ri: num("nr_rank"; 1; 8), pmi: null,
++             mimo_layers: null, dl_mcs: num("DL_MCS_5G"; 0; 31),
++             ul_mcs: num("UL_MCS_5G"; 0; 31), tx_power: null},
++       rrc: {rat: (if (nt | test("^5G")) then "NR"
++                   elif (nt | length) > 0 then "LTE" else null end),
++             state: null},
++       beams: []}'
+ }
+ 
+ # -----------------------------------------------------------------------------
+@@ -443,7 +540,7 @@
+ # value). Only when BOTH groups produce nothing is this a failure.
+ # -----------------------------------------------------------------------------
+ qm_phy_at() {
+-    local mode="${1:-}" lte_cmds nr_cmds cap_a cap_b
++    local mode="${1:-}" lte_cmds nr_cmds cap_a cap_b out _alt
+     lte_cmds="$QM_PHY_AT_LTE"
+     nr_cmds="$QM_PHY_AT_NR"
+     case "$mode" in
+@@ -457,12 +554,55 @@
+     cap_b="$_QM_PHY_CAP"
+ 
+     if [ -z "$cap_a" ] && [ -z "$cap_b" ]; then
++        # No usable AT at all. Take the same fields from the vendor devinfo
++        # store if it is answering; only when it cannot either is this a
++        # failure. (Invariant unchanged: a partial or absent read never
++        # publishes a previous cycle's value.)
++        _alt=$(qm_phy_x16_at 2>/dev/null) || _alt=""
++        if [ -n "$_alt" ]; then
++            printf '%s\n' "$_alt"
++            return 0
++        fi
+         return 3
+     fi
+     # One awk pass over both captures: every payload line names its own command,
+     # so no section marker is needed and an empty group is simply no lines.
+-    printf '%s\n%s\n' "$cap_a" "$cap_b" \
+-        | awk -v beam_max="$QM_PHY_BEAM_MAX" "$QM_PHY_AT_AWK"
++    out=$(printf '%s\n%s\n' "$cap_a" "$cap_b" \
++        | awk -v beam_max="$QM_PHY_BEAM_MAX" "$QM_PHY_AT_AWK")
++
++    # AT+QNWCFG is Quectel and this module is SIMCom, where the shim answers it
++    # with a bare OK: the awk pass then anchors on nothing and every field stays
++    # unset. If the parse yielded no number at all, take the same fields from
++    # the vendor devinfo store instead. A device where QNWCFG really works never
++    # reaches this branch, so its behaviour is unchanged.
++    # MERGE, do not switch. The two sources answer for different fields: the AT
++    # half now carries `lte_mimo_layers` (the shim synthesises it from the
++    # modem's rank) while the store carries CQI/RI/MCS. An either-or choice
++    # loses one set whichever way it goes -- the earlier "is the parse
++    # non-empty?" test picked the AT half the moment MIMO started working and
++    # silently blanked CQI/RI again.
++    #
++    # Precedence: AT value if it is a real number, otherwise the store's.
++    # Nulls are stripped from the AT object first, because jq's `*` merge lets
++    # the right-hand side win and a null there would erase a good store value.
++    _alt=$(qm_phy_x16_at 2>/dev/null) || _alt=""
++    case "$out" in
++        *'{'*) ;;
++        *)     out='{}' ;;
++    esac
++    if [ -n "$_alt" ]; then
++        _merged=$(printf '%s\n%s\n' "$out" "$_alt" | "$(_qm_phy_jq)" -s -c '
++            .[0] as $at | .[1] as $store
++            | ($at | walk(if type == "object"
++                          then with_entries(select(.value != null))
++                          else . end)) as $atv
++            | $store * $atv' 2>/dev/null)
++        [ -n "$_merged" ] && out="$_merged"
++    fi
++    case "$out" in
++        *'{'*) printf '%s\n' "$out" ;;
++        *)     return 3 ;;
++    esac
+     return 0
+ }
+ 

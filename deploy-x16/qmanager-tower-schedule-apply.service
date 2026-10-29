@@ -1,0 +1,8 @@
+[Unit]
+Description=QManager tower lock schedule apply (triggered by qmanager-tower-schedule-apply.timer)
+
+[Service]
+Type=oneshot
+ExecStart=/data/qmanager/bin/qmanager_tower_schedule apply
+
+# Static service only; the apply .timer is generated and armed at runtime.

@@ -1,0 +1,93 @@
+<!--
+ * @,@Author: ,: your name
+ * @,@Date: ,: 2020-12-15 11:01:43
+ * @,@LastEditTime: ,: 2021-07-13 15:02:06
+ * @,@LastEditors: ,: Please set LastEditors
+ * @,@Description: ,: In User Settings Edit
+ * @,@FilePath: ,: \simcom_war\index.html
+ -->
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Cache-Control" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <title>Router</title>
+    <link rel="stylesheet" href="css/element.css">
+    <link rel="stylesheet" href="css/common.css">
+    <style>
+        [v-cloak] {
+            display: none !important;
+        }
+
+        .box-card {
+            width: 500px;
+            margin: 0 auto;
+            margin-top: 60px;
+        }
+
+        .el-form-item_content_button {
+            text-align: end;
+        }
+
+        .el-input__icon {
+            cursor: pointer;
+        }
+        .clearfix {
+            font-size: 16px;
+        }
+    </style>
+</head>
+
+<body>
+    <a id="top" style="display:none;">TOP</a>
+    <div id="container" v-cloak>
+        <el-card class="box-card" v-if="showChangePwd" shadow="always">
+            <div slot="header" class="clearfix">
+                <span>{{TAB.sys.changePasswd}}</span>
+            </div>
+            <el-alert :title="PROMPT.tips.powerPassword" type="warning" :closable="false" show-icon></el-alert>
+            <el-form label-position="top" :model="ruleForm" :rules="rules" ref="ruleForm"
+                :validate-on-rule-change="false">
+                <el-form-item :label="DOC.sys.oldPasswd" prop="oldPasswd">
+                    <el-input v-model="ruleForm.oldPasswd" autocomplete="off" type="password" >
+                    </el-input>
+                </el-form-item>
+                <el-form-item :label="DOC.sys.newPasswd" prop="pass">
+                    <el-input v-model="ruleForm.pass" autocomplete="off" type="password">
+                    </el-input>
+                </el-form-item>
+                <el-form-item :label="DOC.sys.duplicateNewPasswd" prop="checkPass">
+                    <el-input v-model="ruleForm.checkPass" autocomplete="off" type="password">
+                    </el-input>
+                </el-form-item>
+                <el-form-item class="el-form-item_content_button">
+                    <el-button type="primary" @click="submitForm(ruleForm.oldPasswd, ruleForm.checkPass)">
+                        {{DOC.btn.savePinOk}}</el-button>
+                </el-form-item>
+            </el-form>
+        </el-card>
+    </div>
+    <script type="text/javascript" src="js/json2.js?t=8844d00b-430f-47e0-aef6-49d94ec13829"></script>
+    <script type="text/javascript" src="js/vue.js?t=8844d00b-430f-47e0-aef6-49d94ec13829"></script>
+    <script type="text/javascript" src="js/md5.js?t=8844d00b-430f-47e0-aef6-49d94ec13829"></script>
+    <script type="text/javascript" src="js/jquery-1.7.2.js?t=8844d00b-430f-47e0-aef6-49d94ec13829"></script>
+    <script type="text/javascript" src="js/jquery.form.js?t=8844d00b-430f-47e0-aef6-49d94ec13829"></script>
+    <script type="text/javascript" src="js/jquery.validate.js?t=8844d00b-430f-47e0-aef6-49d94ec13829"></script>
+    <script type="text/javascript" src="js/jquery.accordion.js?t=8844d00b-430f-47e0-aef6-49d94ec13829"></script>
+    <script type="text/javascript" src="js/jquery.qrcode.min.js"></script>
+    <script type="text/javascript" src="js/underscore-min.js?t=8844d00b-430f-47e0-aef6-49d94ec13829"></script>
+    <script type="text/javascript" src="js/language_list.js?t=8844d00b-430f-47e0-aef6-49d94ec13829"></script>
+    <script type="text/javascript" src="js/language.js?t=8844d00b-430f-47e0-aef6-49d94ec13829"></script>
+    <script type="text/javascript" src="js/language/cn.js?t=8844d00b-430f-47e0-aef6-49d94ec13829"></script>
+    <script type="text/javascript" src="js/helper.js?t=8844d00b-430f-47e0-aef6-49d94ec13829"></script>
+    <script type="text/javascript" src="js/base64.min.js?t=8844d00b-430f-47e0-aef6-49d94ec13829"></script>
+    <script type="text/javascript" src="js/fy-alert.js?t=8844d00b-430f-47e0-aef6-49d94ec13829"></script>
+    <script type="text/javascript" src="js/index.js?t=8844d00b-430f-47e0-aef6-49d94ec13829"></script>
+    <script type="text/javascript" src="js/element.js?t=8844d00b-430f-47e0-aef6-49d94ec13829"></script>
+    <script type="text/javascript" src="js/main.js?t=8844d00b-430f-47e0-aef6-49d94ec13829"></script>
+</body>
+</html>

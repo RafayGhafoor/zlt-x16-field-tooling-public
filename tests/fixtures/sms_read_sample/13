@@ -1,0 +1,4 @@
+13 1 2026-09-01$08:17:33 and:
+current_max_ul_qam:64QAM  current_max_dl_qam:QPSK
+current_max_ul_qam_5g:64QAM  current_max_dl_qam_5g:QPSK
+signal_lvl:4

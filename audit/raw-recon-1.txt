@@ -1,0 +1,26 @@
+### SUID_SGID ###
+/bin/busybox.suid
+### SU_SHADOW ###
+-rwxr-xr-x    1 root     root         39100 Apr 10  2023 /bin/su.shadow
+### WW_DIRS ###
+/data/etc/qmanager
+/data/mifi
+/data/coredump
+/etc/qmanager
+### WWW_OWNED ###
+drwxrwxr-x    2 www-data www-data       312 Apr 10  2023 /data/www
+-rwxrwx---    1 www-data www-data       112 Apr 10  2023 /data/www/lighttpd.user
+-rwxrwx---    1 www-data www-data         0 Jan  1  1970 /data/www/session_token.txt
+### QM_SERVICES ###
+--- qmanager-httpd
+ExecStart=/data/qmanager/bin/qm_serve.sh start
+--- qmanager-ping
+ExecStart=/data/qmanager/bin/qmanager_ping
+--- qmanager-poller
+ExecStartPre=/bin/sh -c 'i=0; while [ $i -lt 60 ]; do /bin/atcmd "AT+CGMM" 2>/dev/null | grep -q SIMCOM && exit 0; i=$((i+1)); sleep 2; done; exit 1'
+ExecStart=/data/qmanager/bin/qmanager_poller
+--- qmanager-traffic
+ExecStartPre=/bin/sh -c 'ln -sfn /tmp/qmanager_traffic.json /data/qmanager/www/live-traffic.json'
+ExecStart=/data/qmanager/bin/qmanager_traffic.sh
+### WAN_FIX_SVC ###
+ExecStart=/data/zlt-wan-fix/zlt-wan-fix.sh

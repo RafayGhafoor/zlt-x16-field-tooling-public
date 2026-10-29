@@ -1,0 +1,171 @@
+#!/bin/sh
+# =============================================================================
+# start_qmanager — boot hook for QManager on the ZLT X16
+# =============================================================================
+# WHY THIS EXISTS
+#
+# The units are enabled in /etc/systemd/system/multi-user.target.wants/, and a
+# `systemctl daemon-reload` puts them in multi-user.target's dependency graph —
+# but this firmware booted once with the symlinks present and did NOT start a
+# single one of them (InactiveExitTimestamp empty: never even attempted).
+# Every other service on the box is started by /etc/initscripts/StartTZApp,
+# called from TZApp.service (RemainAfterExit=yes). That path demonstrably runs
+# on this firmware, so QManager is started from it too, exactly like
+# start_ssh and start_atcmd_daemon.
+#
+# Idempotent: starting a running unit is a no-op.
+#
+# USAGE: start_qmanager {start|stop|restart|status}
+# =============================================================================
+
+UNITS="qmanager-httpd.service qmanager-poller.service qmanager-ping.service qmanager-traffic.service"
+# Traffic Engine. Its units must be started from HERE, not from
+# multi-user.target.wants: /etc is mounted after systemd has already scanned its
+# unit files on this firmware, so an enable symlink under /etc/systemd/system is
+# invisible for that boot (the same reason every unit in $UNITS is listed).
+# Gated on the binary so a box where the UI uninstalled it does not churn.
+DPI_UNITS="qmanager-dpi.service"
+DPI_TIMER="qmanager-dpi-ensure.timer"
+DPI_BIN=/data/qmanager/bin/tpws
+GUARD="qmanager-guard.timer"
+SYSTEMCTL=/bin/systemctl
+PAYLOAD=/data/qmanager/bin/qm_serve.sh
+# The healer's own record. journald does not persist on this firmware and the
+# syslog sink is absent, so a one-line append here is the only durable evidence
+# that something stopped a unit (and when). Written only when it acts.
+GUARD_LOG=/data/log/qmanager-guard.log
+SCHEDULE_ARM=/data/qmanager/bin/qmanager_tower_schedule_arm
+SCHEDULE_CONFIG=/etc/qmanager/tower_lock.json
+JQ=/data/qmanager/bin/jq
+
+# /data is a separate ubi volume (ubi2_0). At the point StartTZApp runs it is
+# normally mounted, but a slow mount must not silently cost the whole UI, so
+# wait for the payload to appear before starting anything.
+wait_payload() {
+    _i=0
+    while [ $_i -lt 60 ]; do
+        [ -x "$PAYLOAD" ] && return 0
+        sleep 1
+        _i=$((_i + 1))
+    done
+    return 1
+}
+
+case "${1:-start}" in
+    start)
+        if ! wait_payload; then
+            logger -t qmanager "payload $PAYLOAD missing after 60s; not starting" 2>/dev/null || true
+            exit 1
+        fi
+        # One unit at a time: a failure in one must not stop the rest.
+        for u in $UNITS; do
+            $SYSTEMCTL start "$u" >/dev/null 2>&1 || \
+                logger -t qmanager "failed to start $u" 2>/dev/null || true
+        done
+        # The healer that covers the running phase, not just boot (see `ensure`).
+        $SYSTEMCTL start "$GUARD" >/dev/null 2>&1 || \
+            logger -t qmanager "failed to start $GUARD" 2>/dev/null || true
+        # Traffic Engine: the engine itself is config-gated (it exits 0 when no
+        # bypass mode is enabled), so starting it unconditionally is safe; the
+        # ensure loop is what re-asserts the nat REDIRECT after QCMAP flushes the
+        # table on a re-dial.
+        if [ -x "$DPI_BIN" ]; then
+            for u in $DPI_UNITS; do
+                $SYSTEMCTL start "$u" >/dev/null 2>&1 || \
+                    logger -t qmanager "failed to start $u" 2>/dev/null || true
+            done
+            $SYSTEMCTL start "$DPI_TIMER" >/dev/null 2>&1 || \
+                logger -t qmanager "failed to start $DPI_TIMER" 2>/dev/null || true
+        fi
+        # Clock. The vendor boot path syncs exactly once, from start_ntp/ntp.sh,
+        # and it does so BEFORE the data call is up -- while also writing
+        # /tmp/.time_synced before the attempt, so the marker means "we tried".
+        # The RTC is dead (1970), so a missed one-shot leaves the box in 1970 for
+        # the whole session. This retries once a WAN address exists and writes
+        # the marker only on a real sync. Backgrounded: it must never delay the
+        # UI, and it touches no AT command and no PDP context.
+        if [ -x /data/qmanager/bin/qmanager-timesync ]; then
+            /data/qmanager/bin/qmanager-timesync run >/dev/null 2>&1 &
+        fi
+        # /etc is mounted after systemd's initial unit scan on this firmware.
+        # Re-arm saved tower timers only after the writable config and service
+        # units are present; the helper daemon-reloads the manager itself.
+        if [ -x "$SCHEDULE_ARM" ] && [ -s "$SCHEDULE_CONFIG" ] && [ -x "$JQ" ]; then
+            _enabled=$("$JQ" -r '.schedule.enabled // false' "$SCHEDULE_CONFIG" 2>/dev/null)
+            if [ "$_enabled" = "true" ]; then
+                _start=$("$JQ" -r '.schedule.start_time // "08:00"' "$SCHEDULE_CONFIG" 2>/dev/null)
+                _end=$("$JQ" -r '.schedule.end_time // "22:00"' "$SCHEDULE_CONFIG" 2>/dev/null)
+                _days=$("$JQ" -r '.schedule.days // [1,2,3,4,5] | join(",")' "$SCHEDULE_CONFIG" 2>/dev/null)
+                _result=$("$SCHEDULE_ARM" install "$_start" "$_end" "$_days" 2>/dev/null)
+                case "$_result" in *'"armed":true'*) : ;; *) logger -t qmanager "tower schedule did not arm: ${_result:-no response}" 2>/dev/null || true ;; esac
+            else
+                "$SCHEDULE_ARM" teardown >/dev/null 2>&1 || true
+            fi
+        fi
+        ;;
+    stop)
+        $SYSTEMCTL stop "$GUARD" >/dev/null 2>&1 || true
+        # Drain the nat REDIRECT before the engine goes away: the rule points LAN
+        # tcp/80,443 at tpws:989, so leaving it behind blackholes LAN HTTP.
+        /data/qmanager/bin/qmanager_dpi_run --rule-down >/dev/null 2>&1 || true
+        $SYSTEMCTL stop "$DPI_TIMER" >/dev/null 2>&1 || true
+        for u in $DPI_UNITS; do
+            $SYSTEMCTL stop "$u" >/dev/null 2>&1 || true
+        done
+        for u in $UNITS; do
+            $SYSTEMCTL stop "$u" >/dev/null 2>&1 || true
+        done
+        ;;
+    ensure)
+        # IDEMPOTENT HEALER, run from qmanager-guard.timer every minute.
+        #
+        # WHY THIS EXISTS (measured 2026-10-26): a unit can be `enabled` and running
+        # and still be stopped by something that is not us — qmanager-poller was
+        # found `inactive (dead) since … Process: (code=killed, signal=TERM)` two
+        # minutes after a reboot, and stayed dead. `Restart=always` does NOT undo an
+        # explicit `systemctl stop`, so nothing brought it back: the UI kept serving
+        # a stale /tmp/qmanager_status.json and no test noticed until the boot-wiring
+        # check hours later. Whatever the actor was — this box has vendor daemons,
+        # schedules and a diagnostic helper that legitimately pauses the poller — the
+        # contract the UI depends on is "these four units are up", so assert it.
+        #
+        # Deliberately silent when healthy (one `is-active` per unit, no forks) and
+        # deliberately loud when it acts: the echo lands in the journal-less log via
+        # logger and on stdout for the timer unit, which is how the next occurrence
+        # gets a timestamp next to whatever else happened.
+        for u in $UNITS; do
+            case "$($SYSTEMCTL is-enabled "$u" 2>/dev/null)" in
+                enabled) ;;
+                *) continue ;;   # an operator-disabled unit is a decision, not drift
+            esac
+            [ "$($SYSTEMCTL is-active "$u" 2>/dev/null)" = "active" ] && continue
+            $SYSTEMCTL start "$u" >/dev/null 2>&1
+            _line="$(date '+%Y-%m-%d %H:%M:%S') ensure: $u was not active; restarted (now $(systemctl is-active "$u" 2>/dev/null))"
+            logger -t qmanager "$_line" 2>/dev/null || true
+            { [ -d /data/log ] || mkdir -p /data/log; } 2>/dev/null
+            printf '%s\n' "$_line" >> "$GUARD_LOG" 2>/dev/null || true
+            printf '%s\n' "$_line"
+        done
+        ;;
+    status)
+        for u in $UNITS $DPI_UNITS; do
+            printf '%-32s %s\n' "$u" "$($SYSTEMCTL is-active "$u" 2>/dev/null)"
+        done
+        printf '%-32s %s\n' "$GUARD" "$($SYSTEMCTL is-active "$GUARD" 2>/dev/null)"
+        printf '%-32s %s\n' "$DPI_TIMER" "$($SYSTEMCTL is-active "$DPI_TIMER" 2>/dev/null)"
+        ;;
+    restart)
+        "$0" stop
+        "$0" start
+        ;;
+    status)
+        for u in $UNITS; do
+            printf '%-32s %s\n' "$u" "$($SYSTEMCTL is-active "$u" 2>/dev/null)"
+        done
+        ;;
+    *)
+        echo "usage: $0 {start|stop|restart|status}" >&2
+        exit 1
+        ;;
+esac
+exit 0
