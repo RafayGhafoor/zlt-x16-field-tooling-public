@@ -1,0 +1,39 @@
+# /etc/systemd/system/qmanager-dns-stats.service
+#
+# Appends ONE dnsmasq counter sample to /tmp/qmanager_dns_stats_history.json —
+# this is the page's "history" half.
+#
+# WHY IT EXISTS
+#   dnsmasq's SIGUSR1 counters are cumulative and report no rate, so every
+#   rate the SmartDNS page draws (upstream queries/min, cache insertions/min,
+#   retry rate) needs two readings separated in time — and the first one has to be
+#   taken BEFORE the operator opens the page. This timer is that first reading.
+#   Browser-side accumulation was rejected: it ties the history to one open tab.
+#
+# WHERE THE COUNTERS COME FROM ON THIS DEVICE
+#   dnsmasq's dump goes to its `log-facility`, which zlt-smartdns.sh sets to
+#   /tmp/dnsmasq.log, and /var/log/syslog is a symlink to that file (this firmware
+#   has no syslog file at all). The sampler's hardcoded /var/log/syslog therefore
+#   resolves. See the header of zlt-smartdns.sh.
+#
+# COST: one SIGUSR1 + a syslog tail + a jq, every 5 min — a handful of forks, and
+# it must stay that way on this box (a 5 s poller and a 5 s ping loop already run).
+#
+# tmpfs BY DESIGN: /tmp clears each boot, so "N samples since boot" is honest and
+# no flash is written every 5 minutes for a dashboard.
+
+[Unit]
+Description=QManager DNS stats sampler (one dnsmasq counter sample)
+# Do not fight the vendor's dnsmasq ordering; a missing dnsmasq is not an error —
+# the script exits quietly.
+After=dnsmasq.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+Environment=PATH=/data/qmanager/bin:/usr/bin:/bin:/sbin:/usr/sbin
+ExecStart=/data/qmanager/bin/qmanager_dns_stats_sample
+StandardOutput=null
+StandardError=null
+TimeoutStartSec=60
+Nice=15

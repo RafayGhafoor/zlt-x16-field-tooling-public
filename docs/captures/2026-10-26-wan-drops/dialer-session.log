@@ -1,0 +1,207 @@
+1970-01-01 16:48:57.56211 [syslog] [dialer] main: <<<<<Dialer start up<<<<<
+1970-01-01 16:48:57.127409 [syslog] [dialer] main: <<<<<Dialer match state table <sunsea><<<<<
+1970-01-01 16:48:57.244139 [syslog] [dialer] main: <<<<<<dialer init completed.<<<<<<
+1970-01-01 16:48:57.472620 [syslog] [dialer] sunsea_dialer_init_st_handler: [dialer] Sunsea_Basic_Init success
+1970-01-01 16:49:00.956699 [syslog] [dialer] sunsea_dialer_get_module_version: [AT+CNVR=6860,0] module_identification:S2-10DCE
+1970-01-01 16:49:02.207493 [syslog] [dialer] sunsea_dialer_get_module_imei: check current IMEI file successful.
+1970-01-01 16:49:02.238236 [syslog] [dialer] sunsea_dialer_check_mac: lan Mac 98A942862176
+1970-01-01 16:49:02.238367 [syslog] [dialer] sunsea_dialer_check_mac: get lan mac successful:
+1970-01-01 16:49:02.364847 [syslog] [dialer] sunsea_dialer_check_mac: get wifi mac successful:5C46B0AC7096
+1970-01-01 16:49:02.364994 [syslog] [dialer] sunsea_dialer_check_mac: Wifi Mac 5C46B0AC7096
+1970-01-01 16:49:04.68795 [syslog] [dialer] sunsea_set_network_mode: mode_pref = 2
+
+1970-01-01 16:49:05.980269 [syslog] [dialer] sunsea_dialer_set_tel_dm_csca_event_handler: <<<<<set sms csca: +923000960009<<<<<
+
+1970-01-01 16:49:07.255339 [syslog] [dialer] sunsea_dialer_check_airplane_mode: <<<<<wait for Resident network<<<<<
+1970-01-01 16:49:08.378627 [syslog] [dialer] sunsea_roaming_update_handler: <<<<<reg successful.(data switch:1)<<<<<
+1970-01-01 16:49:08.463435 [syslog] [dialer] sunsea_dialer_create_data_connectoion: Try to setup PDU session[0] cid(6)...
+1970-01-01 16:49:08.978684 [syslog] [dialer] sunsea_dialer_create_data_connectoion: <<<<<Setup PDU RET:0.<<<<<
+1970-01-01 16:49:08.978817 [syslog] [dialer] sunsea_dialer_create_data_connectoion: <<<<<Setup PDU session[0]  cid(6) successful.<<<<<
+1970-01-01 16:49:09.361739 [syslog] [dialer] data_call_evt_cb: 
+>>>>> data_call_evt_cb profile[6]
+                           state[1]
+                           err[0]
+                           ifname[rmnet_data0]
+                           ipfamily[IPv4]
+
+1970-01-01 16:49:09.361874 [syslog] [dialer] data_call_evt_cb: <<<<< Datacall Connected!
+1970-01-01 16:49:09.362000 [syslog] [dialer] data_call_evt_cb: IPv4_addr[10.36.208.206]
+
+1970-01-01 16:49:11.908122 [syslog] [dialer] sunsea_dialer_config_lan_wan: bearer_id(5), wan_ip(10.36.208.206), subnet_mask(255.255.255.252)
+1970-01-01 16:49:11.908229 [syslog] [dialer] sunsea_dialer_config_lan_wan: main_dns_server(119.160.122.146), backup_dns_server(119.160.80.146), gw_str(10.36.208.205)
+1970-01-01 16:49:11.908296 [syslog] [dialer] sunsea_dialer_config_lan_wan: real_iface(rmnet_data0), apn(connect.mobilinkworld.com), apn_mtu(1400), pdp_stack(0)
+1970-01-01 16:49:15.549909 [syslog] [dialer] sunsea_dialer_config_lan_wan: <<<<<dial successful.<<<<<
+2026-10-26 20:54:33.145543 [syslog] [dialer] data_call_evt_cb: 
+>>>>> data_call_evt_cb profile[6]
+                           state[0]
+                           err[1]
+                           ifname[]
+                           ipfamily[Unknown]
+
+2026-10-26 20:54:33.145724 [syslog] [dialer] data_call_evt_cb: <<<<< Datacall Disconnected!
+2026-10-26 20:55:14.563901 [syslog] [dialer] sunsea_check_if_pdp_deactive_handler: PDU Session cid(6) disconnected detected, down rmnet_data5 try to recreate data connection..
+2026-10-26 20:55:14.580511 [syslog] [dialer] sunsea_check_if_pdp_deactive_handler: total 1 PDP deactive detected at state(1), check reg status...
+2026-10-26 20:55:14.615922 [syslog] [dialer] sunsea_roaming_update_handler: <<<<<reg successful.(data switch:1)<<<<<
+2026-10-26 20:55:14.632068 [syslog] [dialer] sunsea_dialer_create_data_connectoion: Try to setup PDU session[0] cid(6)...
+2026-10-26 20:55:14.655368 [syslog] [dialer] sunsea_dialer_create_data_connectoion: <<<<<Setup PDU RET:0.<<<<<
+2026-10-26 20:55:14.655534 [syslog] [dialer] sunsea_dialer_create_data_connectoion: <<<<<Setup PDU session[0]  cid(6) successful.<<<<<
+2026-10-26 20:55:15.263876 [syslog] [dialer] data_call_evt_cb: 
+>>>>> data_call_evt_cb profile[6]
+                           state[1]
+                           err[0]
+                           ifname[rmnet_data0]
+                           ipfamily[IPv4]
+
+2026-10-26 20:55:15.264076 [syslog] [dialer] data_call_evt_cb: <<<<< Datacall Connected!
+2026-10-26 20:55:15.264156 [syslog] [dialer] data_call_evt_cb: IPv4_addr[10.9.135.221]
+
+2026-10-26 20:55:16.881193 [syslog] [dialer] sunsea_dialer_config_lan_wan: bearer_id(5), wan_ip(10.9.135.221), subnet_mask(255.255.255.252)
+2026-10-26 20:55:16.881353 [syslog] [dialer] sunsea_dialer_config_lan_wan: main_dns_server(119.160.122.146), backup_dns_server(119.160.80.146), gw_str(10.9.135.222)
+2026-10-26 20:55:16.881479 [syslog] [dialer] sunsea_dialer_config_lan_wan: real_iface(rmnet_data0), apn(connect.mobilinkworld.com), apn_mtu(1400), pdp_stack(0)
+2026-10-26 20:55:17.327927 [syslog] [dialer] sunsea_dialer_config_lan_wan: <<<<<dial successful.<<<<<
+2026-10-26 20:55:17.359178 [syslog] [dialer] sunsea_dialer_config_lan_wan: <<<<<re-dial successful detected. broadcast messages to everybody.<<<<<
+2026-10-26 21:03:27.206428 [syslog] [dialer] data_call_evt_cb: 
+>>>>> data_call_evt_cb profile[6]
+                           state[0]
+                           err[1]
+                           ifname[]
+                           ipfamily[Unknown]
+
+2026-10-26 21:03:27.206615 [syslog] [dialer] data_call_evt_cb: <<<<< Datacall Disconnected!
+2026-10-26 21:04:16.794243 [syslog] [dialer] sunsea_check_if_wanip_changed_handler: Detected rmnet_data0 ip_addr changed, devinfo[201004](10.9.135.221) => ()
+2026-10-26 21:04:16.811191 [syslog] [dialer] sunsea_check_if_wanip_changed_handler: [rmnet_data0] ip addr changed, try to re-create data connection..
+2026-10-26 21:04:16.811414 [syslog] [dialer] sunsea_check_if_wanip_changed_handler: total 1 iface IP changed, check reg status...
+2026-10-26 21:04:16.844039 [syslog] [dialer] sunsea_roaming_update_handler: <<<<<reg successful.(data switch:1)<<<<<
+2026-10-26 21:04:16.849944 [syslog] [dialer] sunsea_dialer_create_data_connectoion: Try to setup PDU session[0] cid(6)...
+2026-10-26 21:04:16.875166 [syslog] [dialer] sunsea_dialer_create_data_connectoion: <<<<<Setup PDU RET:0.<<<<<
+2026-10-26 21:04:16.875351 [syslog] [dialer] sunsea_dialer_create_data_connectoion: <<<<<Setup PDU session[0]  cid(6) successful.<<<<<
+2026-10-26 21:04:16.938418 [syslog] [dialer] data_call_evt_cb: 
+>>>>> data_call_evt_cb profile[6]
+                           state[1]
+                           err[0]
+                           ifname[rmnet_data0]
+                           ipfamily[IPv4]
+
+2026-10-26 21:04:16.938587 [syslog] [dialer] data_call_evt_cb: <<<<< Datacall Connected!
+2026-10-26 21:04:16.938668 [syslog] [dialer] data_call_evt_cb: IPv4_addr[10.9.135.221]
+
+2026-10-26 21:04:19.75179 [syslog] [dialer] sunsea_dialer_config_lan_wan: bearer_id(5), wan_ip(10.9.135.221), subnet_mask(255.255.255.252)
+2026-10-26 21:04:19.75327 [syslog] [dialer] sunsea_dialer_config_lan_wan: main_dns_server(119.160.122.146), backup_dns_server(119.160.80.146), gw_str(10.9.135.222)
+2026-10-26 21:04:19.75527 [syslog] [dialer] sunsea_dialer_config_lan_wan: real_iface(rmnet_data0), apn(connect.mobilinkworld.com), apn_mtu(1400), pdp_stack(0)
+2026-10-26 21:04:19.351038 [syslog] [dialer] sunsea_dialer_config_lan_wan: <<<<<dial successful.<<<<<
+2026-10-26 21:05:56.876799 [syslog] [dialer] data_call_evt_cb: 
+>>>>> data_call_evt_cb profile[0]
+                           state[0]
+                           err[1]
+                           ifname[]
+                           ipfamily[Unknown]
+
+2026-10-26 21:05:56.876963 [syslog] [dialer] data_call_evt_cb: <<<<< Datacall Disconnected!
+2026-10-26 21:06:19.255143 [syslog] [dialer] sunsea_check_if_wanip_changed_handler: Detected rmnet_data0 ip_addr changed, devinfo[201004](10.9.135.221) => ()
+2026-10-26 21:06:19.269048 [syslog] [dialer] sunsea_check_if_wanip_changed_handler: [rmnet_data0] ip addr changed, try to re-create data connection..
+2026-10-26 21:06:19.269223 [syslog] [dialer] sunsea_check_if_wanip_changed_handler: total 1 iface IP changed, check reg status...
+2026-10-26 21:06:19.301496 [syslog] [dialer] sunsea_roaming_update_handler: <<<<<reg successful.(data switch:1)<<<<<
+2026-10-26 21:06:19.317711 [syslog] [dialer] sunsea_dialer_create_data_connectoion: Try to setup PDU session[0] cid(6)...
+2026-10-26 21:06:19.343632 [syslog] [dialer] sunsea_dialer_create_data_connectoion: <<<<<Setup PDU RET:0.<<<<<
+2026-10-26 21:06:19.343799 [syslog] [dialer] sunsea_dialer_create_data_connectoion: <<<<<Setup PDU session[0]  cid(6) successful.<<<<<
+2026-10-26 21:06:19.421983 [syslog] [dialer] data_call_evt_cb: 
+>>>>> data_call_evt_cb profile[6]
+                           state[1]
+                           err[0]
+                           ifname[rmnet_data0]
+                           ipfamily[IPv4]
+
+2026-10-26 21:06:19.422157 [syslog] [dialer] data_call_evt_cb: <<<<< Datacall Connected!
+2026-10-26 21:06:19.422362 [syslog] [dialer] data_call_evt_cb: IPv4_addr[10.9.135.221]
+
+2026-10-26 21:06:21.509417 [syslog] [dialer] sunsea_dialer_config_lan_wan: bearer_id(5), wan_ip(10.9.135.221), subnet_mask(255.255.255.252)
+2026-10-26 21:06:21.509565 [syslog] [dialer] sunsea_dialer_config_lan_wan: main_dns_server(119.160.122.146), backup_dns_server(119.160.80.146), gw_str(10.9.135.222)
+2026-10-26 21:06:21.509684 [syslog] [dialer] sunsea_dialer_config_lan_wan: real_iface(rmnet_data0), apn(connect.mobilinkworld.com), apn_mtu(1400), pdp_stack(0)
+2026-10-26 21:06:21.688346 [syslog] [dialer] sunsea_dialer_config_lan_wan: <<<<<dial successful.<<<<<
+2026-10-26 21:07:00.493113 [syslog] [dialer] data_call_evt_cb: 
+>>>>> data_call_evt_cb profile[6]
+                           state[0]
+                           err[1]
+                           ifname[]
+                           ipfamily[Unknown]
+
+2026-10-26 21:07:00.493304 [syslog] [dialer] data_call_evt_cb: <<<<< Datacall Disconnected!
+2026-10-26 21:07:21.993714 [syslog] [dialer] sunsea_check_if_pdp_deactive_handler: PDU Session cid(6) disconnected detected, down rmnet_data5 try to recreate data connection..
+2026-10-26 21:07:22.7668 [syslog] [dialer] sunsea_check_if_pdp_deactive_handler: total 1 PDP deactive detected at state(1), check reg status...
+2026-10-26 21:07:22.36150 [syslog] [dialer] sunsea_roaming_update_handler: <<<<<reg successful.(data switch:1)<<<<<
+2026-10-26 21:07:22.40584 [syslog] [dialer] sunsea_dialer_create_data_connectoion: Try to setup PDU session[0] cid(6)...
+2026-10-26 21:07:22.62634 [syslog] [dialer] sunsea_dialer_create_data_connectoion: <<<<<Setup PDU RET:0.<<<<<
+2026-10-26 21:07:22.62814 [syslog] [dialer] sunsea_dialer_create_data_connectoion: <<<<<Setup PDU session[0]  cid(6) successful.<<<<<
+2026-10-26 21:07:22.592394 [syslog] [dialer] data_call_evt_cb: 
+>>>>> data_call_evt_cb profile[6]
+                           state[1]
+                           err[0]
+                           ifname[rmnet_data0]
+                           ipfamily[IPv4]
+
+2026-10-26 21:07:22.592567 [syslog] [dialer] data_call_evt_cb: <<<<< Datacall Connected!
+2026-10-26 21:07:22.592645 [syslog] [dialer] data_call_evt_cb: IPv4_addr[10.1.51.192]
+
+2026-10-26 21:07:24.239245 [syslog] [dialer] sunsea_dialer_config_lan_wan: bearer_id(5), wan_ip(10.1.51.192), subnet_mask(255.255.255.128)
+2026-10-26 21:07:24.239390 [syslog] [dialer] sunsea_dialer_config_lan_wan: main_dns_server(119.160.122.146), backup_dns_server(119.160.80.146), gw_str(10.1.51.193)
+2026-10-26 21:07:24.239470 [syslog] [dialer] sunsea_dialer_config_lan_wan: real_iface(rmnet_data0), apn(connect.mobilinkworld.com), apn_mtu(1400), pdp_stack(0)
+2026-10-26 21:07:24.475833 [syslog] [dialer] sunsea_dialer_config_lan_wan: <<<<<dial successful.<<<<<
+2026-10-26 21:07:24.505820 [syslog] [dialer] sunsea_dialer_config_lan_wan: <<<<<re-dial successful detected. broadcast messages to everybody.<<<<<
+2026-10-26 21:07:56.117904 [syslog] [dialer] data_call_evt_cb: 
+>>>>> data_call_evt_cb profile[6]
+                           state[0]
+                           err[1]
+                           ifname[]
+                           ipfamily[Unknown]
+
+2026-10-26 21:07:56.118118 [syslog] [dialer] data_call_evt_cb: <<<<< Datacall Disconnected!
+2026-10-26 21:08:24.115846 [syslog] [dialer] sunsea_check_if_pdp_deactive_handler: PDU Session cid(6) disconnected detected, down rmnet_data5 try to recreate data connection..
+2026-10-26 21:08:24.129828 [syslog] [dialer] sunsea_check_if_pdp_deactive_handler: total 1 PDP deactive detected at state(1), check reg status...
+2026-10-26 21:08:24.163888 [syslog] [dialer] sunsea_roaming_update_handler: <<<<<reg successful.(data switch:1)<<<<<
+2026-10-26 21:08:24.169250 [syslog] [dialer] sunsea_dialer_create_data_connectoion: Try to setup PDU session[0] cid(6)...
+2026-10-26 21:08:24.187084 [syslog] [dialer] sunsea_dialer_create_data_connectoion: <<<<<Setup PDU RET:0.<<<<<
+2026-10-26 21:08:24.187272 [syslog] [dialer] sunsea_dialer_create_data_connectoion: <<<<<Setup PDU session[0]  cid(6) successful.<<<<<
+2026-10-26 21:08:24.788614 [syslog] [dialer] data_call_evt_cb: 
+>>>>> data_call_evt_cb profile[6]
+                           state[1]
+                           err[0]
+                           ifname[rmnet_data0]
+                           ipfamily[IPv4]
+
+2026-10-26 21:08:24.788804 [syslog] [dialer] data_call_evt_cb: <<<<< Datacall Connected!
+2026-10-26 21:08:24.788883 [syslog] [dialer] data_call_evt_cb: IPv4_addr[10.2.77.81]
+
+2026-10-26 21:08:26.389792 [syslog] [dialer] sunsea_dialer_config_lan_wan: bearer_id(5), wan_ip(10.2.77.81), subnet_mask(255.255.255.252)
+2026-10-26 21:08:26.389938 [syslog] [dialer] sunsea_dialer_config_lan_wan: main_dns_server(119.160.122.146), backup_dns_server(119.160.80.146), gw_str(10.2.77.82)
+2026-10-26 21:08:26.390065 [syslog] [dialer] sunsea_dialer_config_lan_wan: real_iface(rmnet_data0), apn(connect.mobilinkworld.com), apn_mtu(1400), pdp_stack(0)
+2026-10-26 21:08:26.581822 [syslog] [dialer] sunsea_dialer_config_lan_wan: <<<<<dial successful.<<<<<
+2026-10-26 21:08:26.616806 [syslog] [dialer] sunsea_dialer_config_lan_wan: <<<<<re-dial successful detected. broadcast messages to everybody.<<<<<
+2026-10-26 21:08:52.947548 [syslog] [dialer] data_call_evt_cb: 
+>>>>> data_call_evt_cb profile[6]
+                           state[0]
+                           err[1]
+                           ifname[]
+                           ipfamily[Unknown]
+
+2026-10-26 21:08:52.947710 [syslog] [dialer] data_call_evt_cb: <<<<< Datacall Disconnected!
+2026-10-26 21:09:26.49929 [syslog] [dialer] sunsea_check_if_pdp_deactive_handler: PDU Session cid(6) disconnected detected, down rmnet_data5 try to recreate data connection..
+2026-10-26 21:09:26.68706 [syslog] [dialer] sunsea_check_if_pdp_deactive_handler: total 1 PDP deactive detected at state(1), check reg status...
+2026-10-26 21:09:26.99330 [syslog] [dialer] sunsea_roaming_update_handler: <<<<<reg successful.(data switch:1)<<<<<
+2026-10-26 21:09:26.108402 [syslog] [dialer] sunsea_dialer_create_data_connectoion: Try to setup PDU session[0] cid(6)...
+2026-10-26 21:09:26.130267 [syslog] [dialer] sunsea_dialer_create_data_connectoion: <<<<<Setup PDU RET:0.<<<<<
+2026-10-26 21:09:26.130453 [syslog] [dialer] sunsea_dialer_create_data_connectoion: <<<<<Setup PDU session[0]  cid(6) successful.<<<<<
+2026-10-26 21:09:26.595456 [syslog] [dialer] data_call_evt_cb: 
+>>>>> data_call_evt_cb profile[6]
+                           state[1]
+                           err[0]
+                           ifname[rmnet_data0]
+                           ipfamily[IPv4]
+
+2026-10-26 21:09:26.595640 [syslog] [dialer] data_call_evt_cb: <<<<< Datacall Connected!
+2026-10-26 21:09:26.595718 [syslog] [dialer] data_call_evt_cb: IPv4_addr[10.22.122.80]
+
+2026-10-26 21:09:28.281505 [syslog] [dialer] sunsea_dialer_config_lan_wan: bearer_id(5), wan_ip(10.22.122.80), subnet_mask(255.255.255.224)
+2026-10-26 21:09:28.281653 [syslog] [dialer] sunsea_dialer_config_lan_wan: main_dns_server(119.160.122.146), backup_dns_server(119.160.80.146), gw_str(10.22.122.81)
+2026-10-26 21:09:28.281779 [syslog] [dialer] sunsea_dialer_config_lan_wan: real_iface(rmnet_data0), apn(connect.mobilinkworld.com), apn_mtu(1400), pdp_stack(0)
+2026-10-26 21:09:28.497907 [syslog] [dialer] sunsea_dialer_config_lan_wan: <<<<<dial successful.<<<<<
+2026-10-26 21:09:28.536206 [syslog] [dialer] sunsea_dialer_config_lan_wan: <<<<<re-dial successful detected. broadcast messages to everybody.<<<<<

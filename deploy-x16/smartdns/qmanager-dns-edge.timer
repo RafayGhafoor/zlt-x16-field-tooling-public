@@ -1,0 +1,30 @@
+# /etc/systemd/system/qmanager-dns-edge.timer
+#
+# Cadence for the measured edge-selection refresh.
+#
+# 30 min: the property being tracked is which upstream hands out a near-class
+# edge, and that changes when a provider changes behaviour — not on a minute
+# scale. Each run queries N upstreams x M probe domains and pings the answers,
+# which is the expensive part on this 1-core Cortex-A7. Measure before shortening.
+#
+# OnBootSec=5min deliberately: the resolver and the WAN must be up, or a cold pool
+# measures a half-connected network and "learns" the wrong members. The timer is
+# started from StartTZApp by zlt-smartdns.sh (~40 s into boot), so this first fire
+# is ~4 minutes after the hook.
+#
+# RandomizedDelaySec spreads the run so a future keepalive-style calibration sweep
+# cannot coincide with it: on the O5A a sweep inflated every provider's latency and
+# would have demoted good members had the refresh trusted it.
+
+[Unit]
+Description=Timer for QManager DNS edge selection refresh
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=30min
+RandomizedDelaySec=120
+AccuracySec=1min
+Unit=qmanager-dns-edge.service
+
+[Install]
+WantedBy=timers.target

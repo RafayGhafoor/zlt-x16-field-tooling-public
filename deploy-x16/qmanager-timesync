@@ -1,0 +1,220 @@
+#!/bin/sh
+# =============================================================================
+# qmanager-timesync — get a real clock at boot, and say whether it worked
+# =============================================================================
+# WHY THIS EXISTS (measured on the ZLT X16, 2026-10-26)
+#
+# The vendor boot path syncs the clock EXACTLY ONCE, from
+# /etc/initscripts/start_ntp (a copy of ntp.sh), and it runs long before the PDP
+# context is up:
+#
+#     touch /tmp/.time_synced        # <- BEFORE the sync, unconditionally
+#     $NTP_START_UP_CMD              # <- busybox ntpd -q -p cn.pool.ntp.org
+#
+# Two consequences, both observed:
+#
+#  1. /tmp/.time_synced means "we tried", never "we synced". The box was found
+#     with that marker present, no ntpd running, and a 1970 clock.
+#  2. `ntpd -q` is one-shot. If its single peer is unreachable at that moment --
+#     which it is, because the data call has not come up yet -- nothing retries
+#     for the rest of the boot. The RTC is dead (`rtc_date : 1970-01-01`), so
+#     the wall clock stays in 1970 until the next reboot happens to win the
+#     race, or somebody runs `date -s`.
+#
+# That is the whole "System Settings > Time Clock" complaint: reading the clock
+# and applying a timezone both work; SYNCING is what is broken, and the UI has
+# no way to show it.
+#
+# WHAT THIS DOES
+#
+#   wait for the WAN to have an address  -> try each NTP server in turn
+#   -> treat success as "ntpd exited 0 AND the year is plausible"
+#   -> retry the whole set with backoff  -> write the marker ONLY on success.
+#
+# It never touches the dialer, QCMAP, the PDP context or any AT command. It runs
+# from /etc/initscripts/start_qmanager (the boot hook that already waits for
+# /data), in the background, so it can never delay the UI.
+#
+# The vendor's own start_ntp is left alone: it is vendor code on a read-only
+# rootfs copy of the boot chain, and rewriting it would be lost. This adds the
+# missing retry beside it instead.
+#
+# USAGE: qmanager-timesync [run]     (no argument = run)
+# =============================================================================
+set -u
+
+LOG=/data/log/qmanager-timesync.log
+MARK=/tmp/.time_synced
+ATTEMPTS="${QM_TIMESYNC_ATTEMPTS:-8}"
+ROUND_SLEEP="${QM_TIMESYNC_SLEEP:-20}"
+WAN_WAIT_SECS="${QM_TIMESYNC_WAN_WAIT:-180}"
+NTPD="${QM_TIMESYNC_NTPD:-/bin/busybox.nosuid ntpd}"
+MDLCFG=/bin/mdlcfg
+
+log() {
+    mkdir -p /data/log 2>/dev/null
+    printf '%s timesync: %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >>"$LOG" 2>/dev/null
+}
+
+# A year before 2024 means the clock is still the 1970 boot value (or close to
+# it), whatever ntpd claimed. This is the check the vendor script is missing:
+# exit status alone does not prove the clock moved.
+clock_plausible() {
+    _y=$(date +%Y 2>/dev/null)
+    case "$_y" in ''|*[!0-9]*) return 1 ;; esac
+    [ "$_y" -ge 2024 ]
+}
+
+wan_up() {
+    # No `ip` on this box; the interface name and the parsed address are enough.
+    /bin/busybox.nosuid ifconfig rmnet_data0 2>/dev/null \
+        | grep -q 'inet addr:[1-9][0-9]*\.'
+}
+
+wait_wan() {
+    _w=0
+    while [ "$_w" -lt "$WAN_WAIT_SECS" ]; do
+        if wan_up; then
+            log "WAN has an address after ${_w}s"
+            return 0
+        fi
+        sleep 3
+        _w=$((_w + 3))
+    done
+    log "WAN still has no address after ${WAN_WAIT_SECS}s; trying NTP anyway"
+    return 1
+}
+
+# Servers: the vendor's own configured peers first (so an operator who set them
+# with mdlcfg keeps them), then reachable public pools. Duplicates are dropped
+# so a box that only has USR_NTP_SERVER set does not try it eight times.
+servers() {
+    _s=""
+    _seen=""
+    _i=0
+    while [ "$_i" -le 4 ]; do
+        case "$_i" in
+            0) _k=USR_NTP_SERVER ;;
+            *) _k="USR_NTP_SERVER_$_i" ;;
+        esac
+        _v=$("$MDLCFG" -g "$_k" 2>/dev/null | tr -d '\r' | tr -d ' ')
+        [ -n "$_v" ] && _s="$_s $_v"
+        _i=$((_i + 1))
+    done
+    _s="$_s pk.pool.ntp.org time.google.com time.cloudflare.com"
+    for _x in $_s; do
+        case " $_seen " in *" $_x "*) continue ;; esac
+        _seen="$_seen $_x"
+        printf '%s\n' "$_x"
+    done
+}
+
+# Coarse bootstrap from an HTTP `Date:` header.
+#
+# WHY THIS IS NEEDED AND NOT OPTIONAL: busybox 1.31's ntpd has NO -g and will
+# NOT step a large offset -- it exits 0 having done nothing. Measured on this
+# unit with the clock forced to 2020:
+#     ntpd -q -p time.google.com   ->  rc=0, clock unchanged
+# and with a 300 s offset it corrects normally. So the actual failure mode --
+# a 1970 boot clock, ~1.7e9 s out -- is exactly the case ntpd refuses. A retry
+# loop around ntpd alone therefore cannot fix this; it just tries eight times.
+# (That, and not a server, is what the earlier "synced from cn.pool.ntp.org"
+# line in the log actually proved: something else set the clock mid-loop and
+# the next round observed it. Worth knowing before trusting that message.)
+#
+# Any plain-HTTP response is enough to get within a second or two, which puts
+# the offset inside ntpd's step limit; NTP then does the precise part. HTTP is
+# used rather than HTTPS so this works even while a wrong clock upsets TLS.
+bootstrap_from_http() {
+    for _url in http://cp.cloudflare.com/ http://connectivitycheck.gstatic.com/generate_204 http://neverssl.com/; do
+        _hdr=$(curl -sI -m 10 "$_url" 2>/dev/null \
+               | sed -n 's/^[Dd]ate:[[:space:]]*//p' | head -1 | tr -d '\r')
+        [ -n "$_hdr" ] || continue
+        # "Mon, 26 Oct 2026 13:43:15 GMT" -> "2026-10-26 13:43:15"
+        _iso=$(printf '%s' "$_hdr" | awk '
+            BEGIN { split("Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec", M, " ") }
+            {
+                mon = 0
+                for (i = 1; i <= 12; i++) if (M[i] == $3) mon = i
+                if (mon > 0 && $2 ~ /^[0-9][0-9]$/ && $4 ~ /^[0-9][0-9][0-9][0-9]$/)
+                    printf "%s-%02d-%s %s", $4, mon, $2, $5
+            }')
+        case "$_iso" in
+            [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]\ [0-9][0-9]:[0-9][0-9]:[0-9][0-9]) ;;
+            *) continue ;;
+        esac
+        if date -u -s "$_iso" >/dev/null 2>&1; then
+            log "bootstrapped the clock from $_url ($_iso UTC)"
+            return 0
+        fi
+    done
+    log "no HTTP Date header obtained; falling back to NTP alone"
+    return 1
+}
+
+sync_once() {
+    _ok=0
+    for _srv in $(servers); do
+        # -q: set the clock and exit. Bounded, because a blackholed UDP peer
+        # would otherwise sit there for ntpd's own multi-minute timeout.
+        if timeout 20 $NTPD -q -p "$_srv" >/dev/null 2>&1; then
+            if clock_plausible; then
+                # "ntpd exited 0 AND the clock is plausible". Both halves
+                # matter: exit status alone is what the vendor script trusts,
+                # and ntpd exits 0 without stepping when it refuses an offset.
+                log "NTP settled the clock via $_srv (now $(date '+%Y-%m-%d %H:%M:%S'))"
+                return 0
+            fi
+            log "ntpd reported success from $_srv but the clock is still $(date +%Y); continuing"
+        fi
+        _ok=$((_ok + 1))
+    done
+    return 1
+}
+
+main() {
+    if clock_plausible; then
+        # Already right: either the vendor's one-shot won this boot or the modem
+        # delivered NITZ. Record it so the marker means what it says.
+        log "clock already plausible at start ($(date '+%Y-%m-%d %H:%M:%S')); nothing to do"
+        : >"$MARK" 2>/dev/null
+        return 0
+    fi
+
+    log "clock is $(date '+%Y-%m-%d %H:%M:%S') at start; waiting for a WAN address"
+    wait_wan || true
+
+    # Coarse first: ntpd will not step a multi-year offset (see the function).
+    # This is what makes the 1970 boot case fixable at all.
+    bootstrap_from_http || true
+
+    _n=0
+    while [ "$_n" -lt "$ATTEMPTS" ]; do
+        _n=$((_n + 1))
+        if sync_once; then
+            : >"$MARK" 2>/dev/null
+            log "attempt $_n succeeded; /tmp/.time_synced written"
+            return 0
+        fi
+        [ "$_n" -lt "$ATTEMPTS" ] && sleep "$ROUND_SLEEP"
+    done
+
+    # Deliberately do NOT write the marker on failure. A stale marker next to a
+    # 1970 clock is what made this defect invisible for so long.
+    rm -f "$MARK" 2>/dev/null
+    log "gave up after $ATTEMPTS attempts; clock is $(date '+%Y-%m-%d %H:%M:%S') and the marker is absent"
+    return 1
+}
+
+case "${1:-run}" in
+    run)   main ;;
+    status)
+        printf 'clock:  %s\n' "$(date '+%Y-%m-%d %H:%M:%S %Z')"
+        printf 'marker: '; [ -f "$MARK" ] && echo present || echo absent
+        printf 'servers:'; servers | tr '\n' ' '; echo
+        ;;
+    *)
+        echo "usage: $0 [run|status]" >&2
+        exit 2
+        ;;
+esac

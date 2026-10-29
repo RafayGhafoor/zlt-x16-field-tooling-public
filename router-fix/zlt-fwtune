@@ -1,0 +1,45 @@
+#! /bin/sh
+#
+# ZLT X16 - local firewall tuning that must be applied AFTER TZApp has built
+# its rule set, because TZApp reconstructs iptables on every boot.
+#
+# Wired the same way as start_telnet / start_ssh:
+#   TZApp.service -> /etc/initscripts/StartTZApp -> zlt-fwtune
+# and also re-asserted by zlt-ssh-watchdog.service every 2 minutes, so a
+# runtime rule rebuild cannot silently bring the rule back.
+#
+# Currently disables exactly one vendor rule:
+#
+#   -A INPUT -p tcp -m multiport --dports 80,443 -m tcp
+#            --tcp-flags FIN,SYN,RST,ACK ACK -j ack-flood
+#   -A ack-flood -m connlimit --connlimit-above 10 --connlimit-mask 32
+#                --connlimit-saddr -j REJECT --reject-with icmp-port-unreachable
+#
+# That rule rejects any source IP holding more than 10 concurrent connections
+# to ports 80/443. It had already fired on this device (4 packets rejected
+# within ~10 minutes of boot), and a multi-stream speedtest plus normal
+# browsing from one PC can easily exceed 10 - which presents to the user as
+# "the internet dies during a speedtest".
+#
+# To restore the vendor behaviour, set SYS_ACKFLOOD_SWITCH=0:
+#   mdlcfg -a SYS_ACKFLOOD_SWITCH=0 && mdlcfg -c
+# (or reboot after clearing the flag - TZApp rebuilds the rule itself).
+#
+set +e
+
+# NOTE: do NOT add /data/* to PATH here. Anything on the writable volume must
+# never shadow a root binary - that is a PATH-hijack privesc. See audit/RECON.md L3.
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+
+CFG=/bin/mdlcfg    # absolute: never resolved through PATH
+ACKFLOOD_SW=`$CFG -g SYS_ACKFLOOD_SWITCH`
+
+# Default = disabled (1). Only re-enable when explicitly set to 0.
+[ "$ACKFLOOD_SW" = "0" ] && exit 0
+
+# Flushing the chain is non-destructive and reversible: the jump rule in INPUT
+# remains, but an empty chain matches nothing.
+iptables -F ack-flood 2>/dev/null
+
+exit 0

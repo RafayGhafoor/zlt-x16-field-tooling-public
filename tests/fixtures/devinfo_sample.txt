@@ -1,0 +1,38 @@
+# /tmp/.devinfo_module_data — the vendor dialer's devinfo dump, one key per line.
+# Verbatim field names and values from a live ZLT X16 sample taken while the
+# modem was on 5G(NSA): docs/captures/recon-detail-metrics.md:153-166.
+#
+# Two properties of this file matter to the shim and are pinned below:
+#   * `lte_rank` / `nr_rank` ARE the rank indication (3GPP RI = layers).
+#   * `MIMO_STATUS` is EMPTY on this firmware (measured twice, 20 min apart):
+#     docs/captures/recon-distance-mimo.md:255-258. It is not a source.
+sim_status:1
+network_type_str:5G(NSA)
+CURRENTBAND:1
+bandwidth:10
+RSRP:-88
+RSRQ:-13
+SINR:0
+RSSI:-57
+CQI:6
+UL_MCS:
+DL_MCS:4
+lte_rank:2
+RSRP_5G:-77
+RSRQ_5G:-11
+SINR_5G:28
+RSSI_5G:-64
+CQI_5G:11
+UL_MCS_5G:19
+DL_MCS_5G:0
+nr_rank:2
+CURRENTBAND_5G:41
+FREQ_5G:509070
+PCI_5G:47
+bandwidth_5G:50
+current_max_ul_qam:QPSK
+current_max_dl_qam:QPSK
+current_max_ul_qam_5g:64QAM
+current_max_dl_qam_5g:QPSK
+signal_lvl:4
+MIMO_STATUS:

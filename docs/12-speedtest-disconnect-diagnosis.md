@@ -1,0 +1,247 @@
+# 03 — The Reported Fault: "speedtest kills the internet on Jazz, not on ONIC"
+
+Customer statement:
+
+> I'm still experiencing the same problem (last time you just reset the router,
+> nothing more). My research indicates that this type of ZLT X16 router suffers
+> from a bug related to NAT table population with firmware version 1.5 and
+> requires an update to 2.x.
+
+This document tests each part of that statement against the device.
+
+---
+
+## 1. Is the symptom real? Yes — and it is SIM-specific
+
+The router keeps a rolling dialer log. `/data/logs_backup/DIALER.log` covers
+**2024-03-20 → 2026-09-01** and contains every PDP session the box ever
+established. Counting `Datacall Connected!` vs `Datacall Disconnected!` per APN:
+
+| APN | Carrier | Connects | Disconnects | Watchdog recoveries |
+|---|---|---|---|---|
+| `jazzconnect.mobilinkword.com` | **Jazz (auto-selected)** | 87 | **86** | 72 |
+| `connect.mobilinkworld.com` | **Jazz (manual)** | 38 | **28** | 10 |
+| `zonginternet` | Zong | 34 | 16 | — |
+| `fixedhbb` | Telenor | 8 | **0** | — |
+| `Ufone.internet` | **ONIC / PTCL** | 2 | **0** | 0 |
+
+That table *is* the customer's complaint, quantified. Every Jazz session ends in
+a bearer teardown; the ONIC session never does.
+
+### What "internet disappears" actually looks like in the log
+
+A representative run (2026-09-01, the session the earlier DIAGNOSIS.md covered):
+
+```
+08:07:42  data_call_evt_cb: state[0] err[1]  ->  Datacall Disconnected!
+08:07:58  data_call_evt_cb: state[0] err[1]  ->  Datacall Disconnected!
+08:08:49  ...
+08:09:05  ...
+```
+
+and on 2025-10-28, a tight flap loop:
+
+```
+09:42:56 DISCONNECT   (IPv4 10.x.x.x)
+09:43:43 WATCHDOG  "PDU Session cid(6) disconnected detected"
+09:43:43 CONNECT      (a *different* WAN IP)
+09:44:12 DISCONNECT
+09:44:45 WATCHDOG
+09:44:45 CONNECT
+...
+```
+
+Each cycle: the modem loses the bearer, the router notices ~60 s later, tears
+down the stale context and re-activates. **The WAN IP changes on every
+reconnect**, which is only possible if the PDP context was genuinely destroyed
+and recreated by the network.
+
+Two things follow from that:
+
+- It is **not** a Wi-Fi, LAN, DNS or NAT problem. It is the cellular data bearer.
+- The router's **recovery is also broken** — the watchdog only runs on an
+  approximately 60-second cycle, so a single teardown costs 6–60 seconds of
+  outage. That is why the customer experiences "internet disappeared" rather
+  than a brief blip.
+
+---
+
+## 2. Is it the NAT table? No
+
+The customer's theory deserves a direct measurement, so the conntrack table was
+sampled under live traffic:
+
+```
+nf_conntrack_max       = 45056
+nf_conntrack_buckets   = 11264
+nf_conntrack_count     = 177 ... 463   (sampled over 40 s under load)
+peak utilisation       = ~1 %
+```
+
+**1 % of capacity.** The NAT table is not remotely full, has never been full, and
+cannot be full with the ~30 LAN clients this box serves.
+
+Three further reasons the NAT theory cannot explain this fault:
+
+1. **NAT lives in Linux; the failure happens below it.** `nf_conntrack` maps
+   LAN flows to a WAN source port. It has no power to make a modem deactivate a
+   PDP context. The dialer log proves the context was deactivated by the network
+   (`state[0] err[1]` from the DSI/WDS event path), and a new IP was assigned on
+   re-activation.
+2. **The NAT configuration is a single, healthy rule:**
+   ```
+   -A postrouting_mdl_chain -o rmnet_data0 -j MASQUERADE
+   ```
+   Nothing is rate-limiting source ports, and `ip_local_port_range` is the
+   default `32768-60999` (~28k ports) — far more than a speedtest needs.
+3. **Swapping to the ONIC SIM fixes it on the same box, same firmware, same NAT
+   rules.** A NAT-table bug is SIM-agnostic. A carrier-policy teardown is not.
+
+### Where the customer's theory came from
+
+A ZLT X16 owner on the Ooredoo **Tunisia** support forum wrote almost exactly
+this:
+
+> J'ai un probleme avec ma box 5G Huawei ZLT X16. Apres quelques heures
+> d'utilisation, l'acces vers Internet (navigation) ne fonctionne plus et je dois
+> redemarrer le modem. Ce n'est pas un probleme de DNS car les ping sortant vers
+> des domaines et des IP directes fonctionnent.
+> [...] il semble que ce soit un bug connu avec ce modem en firmware 1.0.x
+> (probleme remplissage table NAT et IPV6). La version firmware 2.0 semble
+> corriger ce bug.
+
+*(Source: https://assistance.ooredoo.tn/questions/3648401-probleme-table-nat-modem-5g-huawei-zlt-x16)*
+
+Note that the symptom described there is **different from ours**: web browsing
+stops but `ping` to IP addresses still works, and the admin page becomes
+unreachable. That is a forwarding/DNS stall. Our device does the opposite — the
+bearer is destroyed, so *nothing* works, including ping, and the WAN IP changes.
+
+So: plausible-sounding, wrong device, wrong symptom, wrong root cause. The
+version number in the complaint ("1.5") also does not match this unit
+(`1.09.39.10`).
+
+---
+
+## 3. So what is different about Jazz?
+
+The teardown is generated by the network, not the router. The candidates, ranked
+by the evidence available:
+
+### 3a. Wrong APN — a real, confirmed firmware bug  ← see doc 14
+
+Jazz's own documentation says:
+
+| Jazz APN | Use |
+|---|---|
+| `connect.mobilinkworld.com` | postpaid |
+| `jazzconnect.mobilinkworld.com` | prepaid |
+
+The router's built-in APN database (`/system/cusetc/apns-conf_8.xml`, ~line 5703)
+ships:
+
+```xml
+<apn carrier="jazz internet postpaid" mcc="410" mnc="01"
+     apn="connect.mobilinkworld.com" />
+<apn carrier="jazz internet prepaid"  mcc="410" mnc="01"
+     apn="jazzconnect.mobilinkword.com" />   <!-- "mobilinkword" - missing the L -->
+```
+
+**`mobilinkword` vs `mobilinkworld`.** The prepaid Jazz APN is misspelled in the
+firmware, and that is the APN the router auto-selects for a Jazz prepaid SIM —
+which is what the customer has (`971` uses in the log).
+
+A wrong APN name does not always fail the activation outright; Pakistani
+operators frequently match the subscription by IMSI and ignore the requested
+name. The context comes up, an IP is assigned, and the session is then attached
+to whatever charging/APN policy the mismatch resolves to — which is exactly the
+shape of "works for a bit, dies under load".
+
+Even when the customer manually set the *correct* `connect.mobilinkworld.com`
+the churn continued (38 connects / 28 disconnects), so the APN typo alone does
+not explain everything. It is still a defect and must be fixed.
+
+### 3b. Carrier-side tethering / fair-use enforcement
+
+GreenPacket sets `TTL --ttl-set 65` on all WAN egress (doc 13). The ZLT sets
+nothing, so LAN packets leave with TTL 63 while the router's own packets leave
+with TTL 64 — a textbook hotspot signature. Operators that police tethering use
+exactly this to decide whether to throttle or tear down. This is a plausible
+contributor and is cheap to test (see §5).
+
+### 3c. Old modem firmware generation
+
+`MPSS.DE.2.0-01026-OLYMPIC_GENALL_PACK-1`, built **Feb 2023**. The working
+GreenPacket runs the `MPSS.DE.3.0` generation. The earlier `DIAGNOSIS.md` already
+established that the SIM8260E dialer collapses the detailed WDS end cause into a
+generic `err=1`, and that no MBN swap improves it (`W_One_Commercial` was
+worse; `ROW_Commercial` restored the original behaviour — **but see
+[46](46-mbn-switch-attempt.md)**: on 2026-10-29 the modem reports no software PDC
+config at all, so "ROW_Commercial is active" is not a current fact). An old DSI/WDS stack
+being intolerant of carrier-initiated bearer modification is consistent with
+everything observed.
+
+### 3d. Ooredoo-Oman product config on a Pakistani network
+
+The unit is flashed `OMN247` (Ooredoo Oman) while being used on Jazz/PTB/ONIC.
+Operator customisation includes RF/SCG limits that were tuned for another
+network. Lower probability, but it is a real difference from a "generic" unit.
+
+---
+
+## 4. What was ruled out
+
+| Hypothesis | Verdict | Evidence |
+|---|---|---|
+| NAT/conntrack table exhaustion | **Ruled out** | 1 % utilisation; NAT is below the failure point |
+| Router reboot | **Ruled out** | uptime continuous across outages |
+| LAN/Wi-Fi disconnection | **Ruled out** | LAN stays reachable during the WAN outage |
+| LTE registration loss | **Ruled out** | `CEREG: 0,1` throughout |
+| Memory pressure / OOM | **Ruled out** | ~499 MB available |
+| Thermal throttling | **Ruled out** | 39–45 °C |
+| Traffic quota / flow limit | **Ruled out** | `SYS_INTERNET_LIMIT_SWITCH=0`, `FLOW_CONTROL.log` empty |
+| MTU / MSS mismatch | **Mostly ruled out** | the firmware already clamps — see doc 14 §3 |
+| MBN policy | **Ruled out by experiment** | see `DIAGNOSIS.md` PDC section |
+| IPA/QMAP hardware errors | **Ruled out** | all error counters zero |
+
+---
+
+## 5. Recommended next tests (in order)
+
+1. **Fix the APN typo / set the APN explicitly.** Set
+   `jazzconnect.mobilinkworld.com` by hand in the web UI rather than letting
+   auto-detect pick the misspelled entry. Retest.
+2. **Test the same Jazz SIM in the GreenPacket.** This is the single most
+   valuable experiment — it separates "Jazz tears this SIM's bearer" from "this
+   router's modem stack mishandles it". The GreenPacket is already on the LAN and
+   reachable at `192.168.0.1:2222`.
+3. **Test TTL normalisation.** Add
+   `iptables -t mangle -A POSTROUTING -o rmnet_data0 -j TTL --ttl-set 65`
+   (mirroring GreenPacket) and see whether the churn changes. Reversible.
+4. **Force IPv4-only.** `USR_APN_PDP_TYPE=IP` is already set; confirm the modem
+   does not also bring up an IPv6 context that the router cannot NAT
+   (`EnableIPv6NAT=0` in `mobileap_cfg.xml`).
+5. **Capture `AT+CEER` at the moment of teardown.** Everything so far only has
+   the collapsed `err=1`. A real ESM/DSI cause would end the guessing.
+6. **Only then consider firmware.** A `2.0.0.5` / `X16-OMN247_4.0.04` build
+   exists (doc 11). Ask Ooredoo/vendor for it, but do not expect it to fix a
+   carrier-initiated bearer teardown unless the release notes mention it.
+
+---
+
+## 6. Secondary finding — the box stalls under disk I/O
+
+Twice during this work the device became unresponsive for **minutes** while a
+recursive `grep` was running over `/system`, `/usr` and `/tzwww`:
+
+- ICMP stopped replying
+- ports 22/23 closed entirely
+- port 80 accepted TCP but never answered
+- **uptime kept counting** — the box did not reboot
+- it recovered on its own
+
+This matches the *Ooredoo Tunisia* complaint far better than it matches the
+customer's speedtest story, and it is worth knowing operationally: **never run
+unbounded recursive filesystem scans on this hardware.** Whether it is a ubifs
+I/O stall, a watchdog starvation, or the TZ app blocking on the volume is not
+yet established.

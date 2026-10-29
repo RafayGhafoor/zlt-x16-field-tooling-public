@@ -1,0 +1,118 @@
+### BUSYBOX SUID APPLETS ###
+crontab findfs login mount passwd ping ping6 su traceroute traceroute6 vlock 
+### QMANAGER SCRIPT PERMS ###
+-rwxr-xr-x    1 root     root          2854 Oct 26 02:52 /data/qmanager/bin/qm_serve.sh
+-rwxr-xr-x    1 root     root         36313 Oct 26 02:53 /data/qmanager/bin/qmanager_ping
+-rwxr-xr-x    1 root     root        147559 Oct 26 02:53 /data/qmanager/bin/qmanager_poller
+-rwxr-xr-x    1 root     root          5115 Oct 26 04:04 /data/qmanager/bin/qmanager_traffic.sh
+-rwxr-xr-x    1 root     root          1243 Oct 25 03:51 /data/qmanager/bin/sudo
+### WAN-FIX SCRIPT PERMS ###
+-rwxr-xr-x    1 root     root           592 Sep  1 09:50 /data/zlt-wan-fix/zlt-wan-fix.sh
+### LIGHTTPD RUNNING? ###
+lighttpd NOT running
+### WEB ROOT /WEBSERVER ###
+/WEBSERVER does not exist (stale conf)
+### 8080 FIREWALL ###
+0
+### ESTABLISHED TO TR069 ACS? ###
+0
+### QM AUTH MODE ###
+  "full_bypass": {
+### qmanager.conf (full) ###
+{
+  "watchcat": {
+    "enabled": 0,
+    "check_interval": 10,
+    "fail_threshold": 5,
+    "probe_interval": 5,
+    "cooldown": 60,
+    "tier1_enabled": 1,
+    "tier2_enabled": 1,
+    "tier3_enabled": 0,
+    "tier4_enabled": 1,
+    "backup_sim_slot": "",
+    "max_reboots_per_hour": 3
+  },
+  "bridge_monitor": {
+    "enabled": 0,
+    "ws_port": 8838,
+    "refresh_rate_ms": 1000,
+    "interfaces": "br-lan,eth0,rmnet_data0,rmnet_data1,rmnet_ipa0",
+    "channel": "network-monitor",
+    "json_mode": "yes"
+  },
+  "eth_link": {
+    "speed_limit": "auto"
+  },
+  "settings": {
+    "temp_unit": "celsius",
+    "distance_unit": "km",
+    "hostname": "",
+    "timezone": "UTC0",
+    "zonename": "UTC",
+    "sms_tool_device": "",
+    "sched_reboot_enabled": 0,
+    "sched_reboot_time": "04:00",
+    "sched_reboot_days": "0,1,2,3,4,5,6"
+  },
+  "video_optimizer": {
+    "enabled": 0,
+    "strategy": "full"
+  },
+  "full_bypass": {
+    "enabled": 0,
+    "sni_domain": "speedtest.net"
+  },
+  "update": {
+    "include_prerelease": 1,
+    "auto_update_enabled": 0,
+    "auto_update_time": "03:00"
+  }
+}
+### auth.json perms+size ###
+-rw-------    1 root     root           143 Oct 26 02:55 /etc/qmanager/auth.json
+### sim_registry / known_iccids ###
+89410037251217291419
+
+{
+  "89410037251217291419": {
+    "carrier": "Onic",
+    "phone_number": "",
+    "first_seen": "2026-10-25T23:02:02Z",
+    "dismissed": false
+  }
+}
+
+### VERIFICATION RESULTS (operator-run, read-only) ###
+
+[CONFIRMED] Port 8080 QManager serves data with NO authentication:
+  curl http://127.0.0.1:8080/                                      -> 200
+  curl http://127.0.0.1:8080/cgi-bin/quecmanager/public/overview.sh -> 200 + JSON
+  Response includes uptime, network state, signal fields. No cookies, no session.
+
+[NOT VULNERABLE / auth enforced] Vendor CGI on :80 rejects without a session.
+  cmd=0 (SYS_INFO), 207 (DEVICE_INFO), 180 (CONFIG_EXPORT),
+  204 (GET_FILE_DATA, url=/etc/passwd), 17 (SYS_LOG), 45 (LTE_AT/AT_CMD)
+  all returned an EMPTY body when sessionId was empty -> auth gate holds.
+
+[NOT VULNERABLE] CGI `url` traversal on cmd=50 (GET_HTML):
+  ../etc/passwd, ../../etc/passwd, ../../../../etc/passwd, /etc/passwd
+  all returned empty. No traversal observed (also unauthenticated, so inconclusive
+  for an authenticated session - worth re-testing WITH a valid session).
+
+[CONFIRMED] lighttpd is NOT running; /WEBSERVER does not exist.
+  /data/lighttpd.conf and /data/www/lighttpd.user are STALE leftovers.
+  The live web server is /bin/mini_httpd (root) on :80/:443 and busybox httpd
+  (root) on :8080.
+
+[CONFIRMED] busybox.suid applets: crontab findfs login mount passwd ping ping6
+  su traceroute traceroute6 vlock  (setuid root)
+
+[CONFIRMED] No iptables rule mentions 8080 (count = 0) -> 8080 is not filtered
+  from the WAN.
+
+[CONFIRMED] No established connection to the TR-069 ACS (183.6.18.43) at
+  inspection time; periodic ACS is enabled with an 86400 s interval though.
+
+[NOTE] qmanager.conf "full_bypass" is a video-optimizer/SNI feature
+  (sni_domain: speedtest.net), NOT an authentication bypass. Disabled (0).

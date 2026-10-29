@@ -1,0 +1,40 @@
+# /etc/systemd/system/zlt-smartdns.service
+#
+# Re-applies the dnsmasq wiring (and the /var/log/syslog shim) once a minute.
+#
+# WHY A GUARD, AND WHY A TIMER
+#   The forwarding block lives in /tmp/dnsmasq.conf, which the vendor generates and
+#   which is NOT owned by this module. QCMAP rewrites that file on its own events
+#   (its binary carries create_dnsmasq_config_file / UpdateDNSMASQConfFile), and a
+#   rewrite silently removes `server=127.0.0.1#5353` — the page would still show a
+#   healthy resolver while every LAN client bypassed it. This is the same class of
+#   failure as an enabled-but-never-started unit: the state looks right.
+#   Measured 2026-10-26: nothing on this box supervises dnsmasq either (`killall
+#   dnsmasq` left LAN DNS dead), so the same run also restarts it if it is gone.
+#
+# The script is idempotent and cheap when nothing changed: one netstat, one awk,
+# one cmp. It only touches dnsmasq when the file is actually different, and it
+# validates the candidate with `dnsmasq --test` before the live daemon is touched.
+#
+# `-` prefix: exit 2 means "dnsmasq config not created yet" (LAN still coming up),
+# which is a normal state, not a unit failure.
+#
+# KillMode=process is REQUIRED, not tuning: this script may have to restart
+# dnsmasq, and the default KillMode=control-group SIGTERMs every process left in
+# this unit's cgroup when the oneshot exits. Measured 2026-10-26 without it —
+# dnsmasq logged "exiting on receipt of SIGTERM" one second after the guard
+# started it, and the LAN sat without DNS until the next guard run.
+
+[Unit]
+Description=SmartDNS dnsmasq wiring guard (ZLT X16)
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+KillMode=process
+Environment=PATH=/data/qmanager/bin:/usr/bin:/bin:/sbin:/usr/sbin
+ExecStart=-/data/qmanager/bin/zlt-smartdns.sh wire
+StandardOutput=null
+StandardError=null
+TimeoutStartSec=120
+Nice=15

@@ -1,0 +1,23 @@
+# /etc/systemd/system/zlt-smartdns.timer
+#
+# 1-minute cadence for the dnsmasq wiring guard (see zlt-smartdns.service).
+#
+# 1 min, not 5: the failure this covers is "the vendor regenerated
+# /tmp/dnsmasq.conf", and every minute in that state is a minute where the resolver
+# is installed but unused — the panel would show a healthy resolver and the LAN
+# would be on the carrier path. One idle run costs a netstat + an awk + a cmp.
+#
+# OnBootSec=2min only matters if the timer is ever started by systemd itself; on
+# this firmware it is started by zlt-smartdns.sh from the boot hook.
+
+[Unit]
+Description=Timer for the SmartDNS dnsmasq wiring guard
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+AccuracySec=10s
+Unit=zlt-smartdns.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,23 @@
+### [V] dir modes ###
+ls: /data/tzusrfs: No such file or directory
+ls: /data/tzusrfs/sbin: No such file or directory
+drwxrwxrwx    4 root     root           904 Oct 26 03:36 /data/etc/qmanager
+drwxrwxrwx    2 root     root           160 Jan  1  1970 /data/mifi
+drwxrwx---    4 root     system         296 Apr 10  2023 /data/misc
+drwxrwx---    2 root     system         160 Jan  1  1970 /data/vendor/tzstorage
+drwxrwx---    4 root     system         328 Jan  6  1980 /persist/data
+drwxrwxrwt   11 root     root          3300 Oct 26 04:16 /tmp
+drwxr-xr-x    2 root     root          1140 Oct 26 03:49 /tmp/.sockmsg
+### [V] core_pattern ###
+/data/coredump/core.%e
+### [V] crond running? ###
+crond NOT running
+### [V] who references /data/tzusrfs/sbin ###
+/etc/initscripts/start_ssh
+/etc/initscripts/zlt-fwtune
+### [V] mdlcfg real path ###
+/bin/mdlcfg
+-rwxrwxr-x    1 system   system      144796 Jan  5  2024 /bin/mdlcfg
+### QM units enabled? (corrects docs/16 S4) ###
+enabled
+enabled

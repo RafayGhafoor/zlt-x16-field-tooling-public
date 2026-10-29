@@ -1,0 +1,40 @@
+# /etc/systemd/system/qmanager-dns.service
+#
+# smartdns-rs 0.13.1 — the resolver QManager's /local-network/smartdns page
+# drives. Absorbed from the sibling product (greenpacket-o5a) where it has run
+# since 2026-07; this module ports it to the ZLT X16, which differs in two ways
+# that matter here (see deploy-x16/smartdns/README.md):
+#
+#   * the payload root is /data/qmanager, not /usrdata/qmanager
+#   * /etc/systemd/system is INVISIBLE during boot (the /etc volume mounts after
+#     systemd loads its graph), so `enabled` proves nothing and the unit is
+#     started by /data/qmanager/bin/zlt-smartdns.sh boot from StartTZApp.
+#     `systemctl enable` still matters: zlt-smartdns.sh reads it, and
+#     `disable` is the way to make "off" survive a reboot.
+#
+# WHERE THIS FITS
+#   NOT the LAN-facing resolver. dnsmasq owns 192.168.3.1:53 and forwards here
+#   via `strict-order` (a block zlt-smartdns.sh appends to /tmp/dnsmasq.conf),
+#   keeping the carrier resolvers as its fallback tier. Stopping this unit
+#   therefore DEGRADES LAN DNS rather than breaking it — that is what makes the
+#   page's toggle safe to press.
+#
+# StandardOutput/StandardError = null: journald does not persist on this
+# firmware and its stdout socket is not up when early units start. smartdns does
+# its own file logging (log-file /tmp/smartdns.log, capped 128k x2).
+
+[Unit]
+Description=QManager DNS resolver (smartdns-rs, upstream for dnsmasq)
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+ExecStart=/data/qmanager/bin/smartdns run -c /data/qmanager/etc/smartdns.conf
+StandardOutput=null
+StandardError=null
+Restart=always
+RestartSec=2
+TimeoutStopSec=5
+
+[Install]
+WantedBy=multi-user.target

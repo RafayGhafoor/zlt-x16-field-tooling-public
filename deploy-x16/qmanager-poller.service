@@ -1,0 +1,33 @@
+[Unit]
+Description=QManager modem poller (fills /tmp/qmanager_status.json)
+After=TZApp.service network.target
+Wants=network.target
+
+[Service]
+Type=simple
+# The poller reads identity once at start. If the modem is not answering yet it
+# caches whatever AT+CGMM returned (the boot "RDY" URC) and never refreshes it,
+# so gate the start on a real model string instead of just the device node.
+ExecStartPre=/bin/sh -c 'i=0; while [ $i -lt 60 ]; do /bin/atcmd "AT+CGMM" 2>/dev/null | grep -q SIMCOM && exit 0; i=$((i+1)); sleep 2; done; exit 1'
+ExecStart=/data/qmanager/bin/qmanager_poller
+Environment=PATH=/data/qmanager/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# AT contention: this poller and /bin/dialer share the vendor atcmd_daemon.
+# The dialer polls at 1 Hz and reboots the router after repeated AT failures,
+# so the poller must stay slow and must never issue scanning commands.
+Environment=QM_AT_MIN_INTERVAL=3
+# This unit is the one process whose AT reads must always be REAL readings, so
+# it forces a refresh: QM_AT_REFRESH makes every live slot use the short TTL
+# (QM_AT_TTL_FORCE, 2 s) instead of the 8 s one a UI read gets. Without it the
+# poller would hit its own previous cycle and the reading would freeze — see the
+# TTL split in atcli_smd11. 2 s is under this unit's own 3 s floor, and it still
+# collapses the four CPSI reads inside one tier-1.5 pass.
+Environment=QM_AT_REFRESH=1
+# ...and it never uses the lock-free `--peek` fast path: it IS the lock holder,
+# so peeking would only add a process per call.
+Environment=QM_AT_NO_PEEK=1
+Restart=always
+RestartSec=10
+StartLimitBurst=20
+
+[Install]
+WantedBy=multi-user.target

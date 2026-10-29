@@ -1,0 +1,55 @@
+#!/bin/sh
+# =============================================================================
+# pre-commit — run the host-side suites before every commit
+# =============================================================================
+# WHY: AGENTS.md §7 says "commit when a feature is finished and verified", and
+# until now "verified" relied on someone remembering to type
+# `sh tests/run-all.sh`. Python has pytest because the runner is wired into the
+# workflow; this is the same idea for a shell repo. The suites exist so a
+# regression fails a commit, not a customer.
+#
+# COST: the whole host suite is ~18 s and needs no device and no network. That
+# is cheap enough to run on every commit, which is the only reason it is worth
+# having. If it ever grows past ~60 s, split it: keep the fast unit suites here
+# and move the rest to pre-push.
+#
+# BYPASS, deliberately available and deliberately visible:
+#   git commit --no-verify        (git's own escape hatch)
+#   QM_TEST_SKIP=1 git commit ... (records intent in the shell history instead)
+# Neither is a substitute for fixing the failure. A commit that skips the suite
+# should say why in its body.
+#
+# INSTALL:  sh tests/install-hooks.sh      (sets core.hooksPath=.githooks)
+# =============================================================================
+set -u
+
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+
+if [ "${QM_TEST_SKIP:-}" = "1" ]; then
+    echo "pre-commit: SKIPPED (QM_TEST_SKIP=1) -- tests did not run" >&2
+    exit 0
+fi
+
+# Overridable so CI can swap the command and so the hook's failure path is
+# testable without breaking a real suite.
+TEST_CMD="${QM_TEST_CMD:-sh $ROOT/tests/run-all.sh}"
+OUT=$(mktemp "${TMPDIR:-/tmp}/qm-precommit.XXXXXX") || exit 0
+trap 'rm -f "$OUT"' EXIT
+
+echo "pre-commit: running the host suites (bypass: git commit --no-verify)"
+if sh -c "$TEST_CMD" >"$OUT" 2>&1; then
+    tail -3 "$OUT" | sed 's/^/    /'
+    exit 0
+fi
+
+echo ""
+echo "=============================================================" >&2
+echo " COMMIT BLOCKED -- the host test suite failed." >&2
+echo "=============================================================" >&2
+# Only the failures, not the whole transcript: the point is the diff, and a
+# 600-line scroll is how a real failure gets scrolled past.
+grep -E 'FAIL|FAILED|### .* FAILED' "$OUT" | head -30 | sed 's/^/  /' >&2
+echo "" >&2
+echo " Full output: $ROOT/tests/run-all.sh" >&2
+echo " Bypass (say why in the commit body): git commit --no-verify" >&2
+exit 1

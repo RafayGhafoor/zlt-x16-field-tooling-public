@@ -1,0 +1,26 @@
+# /etc/systemd/system/qmanager-guard.timer
+#
+# 1-minute cadence for the QManager unit healer (qmanager-guard.service).
+#
+# Why 1 minute: the symptom it repairs is a dead poller, and every minute of that
+# is a minute of stale data on the dashboard with nothing saying so (journald does
+# not persist here, so there is no "the service stopped" line to find later).
+# One healthy run is a handful of `systemctl is-active` calls on a box that already
+# runs a 5 s poller and a 5 s ping loop.
+#
+# OnBootSec=2min only matters if systemd ever starts this by itself; on this
+# firmware the boot hook (`/etc/initscripts/start_qmanager start`) starts the timer
+# explicitly, because units under /etc/systemd/system get no boot job at all
+# (docs/README.md → deployment model).
+
+[Unit]
+Description=Timer for the QManager unit healer
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+AccuracySec=10s
+Unit=qmanager-guard.service
+
+[Install]
+WantedBy=timers.target

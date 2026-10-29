@@ -1,0 +1,6 @@
+node_modules/
+.next/
+out/
+__pycache__/
+.DS_Store
+scripts/demo/fixtures/

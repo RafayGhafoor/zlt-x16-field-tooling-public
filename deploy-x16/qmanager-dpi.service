@@ -1,0 +1,45 @@
+# /etc/systemd/system/qmanager-dpi.service
+#
+# Deployment unit for the GreenPacket O5A Pro (see deploy/README.md).
+#
+# WHY THIS UNIT EXISTS: upstream ships it, the deployment initially did not, so
+# the Traffic Engine could be installed and enabled and still never run. The UI
+# reported status "stopped" with binary_installed true and
+#   {"error":"engine_start_failed","detail":"settings saved but the engine did not start"}
+# because systemd had no unit to start. Everything downstream of that — the
+# nat REDIRECT for LAN tcp/80,443, the tpws process, packet counters — was
+# silently absent while the QUIC toggle still worked (it is independent).
+#
+# DIFFERENCES FROM THE UPSTREAM UNIT:
+#   * ExecStart/Pre/Post point at the relocated helper. / is a read-only
+#     squashfs, so QManager lives in /data/qmanager.
+#   * Environment=PATH includes that bin dir: qmanager_dpi_run is a shell script
+#     that shells out to `jq` and `iptables`. A plain ssh shell does not have
+#     those on PATH here (measured: `ip` and `iptables` are not found without
+#     full paths), and systemd's default PATH has neither our dir nor /usr/sbin.
+#   * ConditionPathExists is relocated to match where the tpws binary lands.
+#   * After=qmanager-setup.service is dropped — that unit does not exist here.
+#   * StartLimitBurst raised: this device SIGTERMs services during memory
+#     pressure and boot sweeps, and a parked engine silently stops bypassing.
+[Unit]
+Description=QManager Traffic Engine (tpws DPI bypass)
+After=network.target
+ConditionPathExists=/data/qmanager/bin/tpws
+StartLimitIntervalSec=3600
+StartLimitBurst=20
+
+[Service]
+Type=simple
+Environment=PATH=/data/qmanager/bin:/usr/local/sbin:/usr/local/bin:/usr/bin:/usr/sbin:/bin:/sbin
+ExecStart=/data/qmanager/bin/qmanager_dpi_run
+# The REDIRECT rule's lifetime is bound to the PROCESS: install only after tpws
+# is proven to be listening, drain on every stop (crash and start-limit
+# included). Both hooks exit 0 by design — a failing ExecStartPost would kill a
+# healthy engine.
+ExecStartPost=/data/qmanager/bin/qmanager_dpi_run --rule-up
+ExecStopPost=/data/qmanager/bin/qmanager_dpi_run --rule-down
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

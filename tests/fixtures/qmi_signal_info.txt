@@ -1,0 +1,10 @@
+[qrtr://3] Successfully got signal info
+LTE:
+	RSSI: '-53 dBm'
+	RSRQ: '-12 dB'
+	RSRP: '-79 dBm'
+	SNR: '4.2 dB'
+5G:
+	RSRP: '-60 dBm'
+	SNR: '26.5 dB'
+	RSRQ: '-11 dB'

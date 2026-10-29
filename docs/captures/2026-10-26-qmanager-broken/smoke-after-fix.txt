@@ -1,0 +1,63 @@
+authenticated
+
+endpoint                               code  ms      verdict
+--------                               ----  --      -------
+public/overview.sh                     200   0       ok
+public/hostname.sh                     200   1000    ok
+public/units.sh                        200   0       ok
+at_cmd/fetch_data.sh                   200   0       ok
+at_cmd/fetch_events.sh                 200   0       ok
+at_cmd/fetch_ping_history.sh           200   0       ok
+at_cmd/fetch_signal_history.sh         200   0       ok
+device/about.sh                        200   1000    ok
+cellular/settings.sh                   200   2000    ok
+cellular/apn.sh                        200   8000    ok
+cellular/sms.sh                        200   6000    ok
+cellular/imei.sh                       200   0       ok
+cellular/fplmn.sh                      200   2000    WARN known-unsupported (AT_CRSM_unavailable)
+cellular/mbn.sh                        200   1000    WARN known-unsupported (AT_QMBNCFG_unavailable)
+cellular/network_priority.sh           200   1000    ok
+bands/current.sh                       200   1000    ok
+bands/failover_status.sh               200   0       ok
+frequency/status.sh                    200   7000    ok
+monitoring/alerts.sh                   200   1000    ok
+monitoring/sites.sh                    200   0       ok
+monitoring/watchdog.sh                 200   0       ok
+network/custom_dns.sh                  200   0       ok
+network/data_used.sh                   200   1000    ok
+network/mtu.sh                         200   0       ok
+network/ttl.sh                         200   0       ok
+network/ethernet.sh                    200   1000    ok
+network/ip_passthrough.sh              200   0       ok
+network/smartdns.sh                    200   1000    ok
+network/smartdns_stats.sh              200   0       ok
+network/video_optimizer.sh             200   1000    ok
+profiles/list.sh                       200   0       ok
+profiles/current_settings.sh           200   0       ok
+scenarios/list.sh                      200   0       ok
+scenarios/active.sh                    200   0       ok
+settings/ping_profile.sh               200   0       ok
+settings/quality_thresholds.sh         200   0       ok
+system/settings.sh                     200   0       ok
+system/logs.sh                         200   1000    ok
+system/known_sims.sh                   200   0       ok
+system/sim_registry.sh                 200   0       ok
+system/modem-subsys.sh                 200   0       ok
+system/health-check/status.sh          200   0       ok
+system/language-packs/list.sh          200   0       ok
+tower/status.sh                        200   2000    ok
+at_cmd/cell_scan_status.sh             200   0       ok
+at_cmd/neighbour_scan_status.sh        200   0       ok
+at_cmd/speedtest_status.sh             200   0       ok
+at_cmd/speedtest_check.sh              200   0       ok
+
+--- semantic checks ---
+check                                    verdict
+-----                                    -------
+modem reachable                          ok
+signal history has samples               ok
+ping history has samples                 ok
+ttl is numeric                           ok
+settings exists                          ok
+
+passed=46 warned=2 failed=0 semantic_failed=0

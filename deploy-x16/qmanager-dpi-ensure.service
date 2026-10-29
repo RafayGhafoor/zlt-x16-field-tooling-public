@@ -1,0 +1,41 @@
+# /etc/systemd/system/qmanager-dpi-ensure.service
+#
+# Deployment unit for the GreenPacket O5A Pro (see deploy/README.md).
+#
+# QCMAP flushes the iptables nat table on every re-dial, which silently drops
+# the Traffic Engine's REDIRECT rule; the QUIC REJECT lives in filter/FORWARD
+# and is re-asserted here too. The payload self-gates: when the feature is
+# disabled it exits 0 doing nothing, so the timer can stay unconditionally
+# armed.
+#
+# Deployment differences: relocated ExecStart, PATH that includes the QManager
+# bin dir (the helper needs jq and iptables), and no qmanager-setup.service
+# dependency (that unit does not exist here).
+[Unit]
+Description=QManager Traffic Engine ensure (rule re-assert loop)
+# Never park in `failed`: this is the self-heal for a QCMAP iptables flush.
+StartLimitIntervalSec=0
+
+[Service]
+# RESIDENT since 2026-10-22 (was a Type=oneshot fired every 60 s by the timer).
+# Each oneshot run made PID 1 write three info lines to the kernel ring
+# ("Starting…", "Succeeded.", "Started…": 180 lines/h, 4,320/day, the bulk of
+# dmesg) and paid a unit start plus a fresh shell sourcing four libraries.
+# Measured NEGATIVE result: LogLevelMax=notice on this unit does NOT suppress
+# those PID 1 lines on this firmware's systemd 244 (LogTarget=journal-or-kmsg,
+# journald masked) — deployed and observed, the lines kept coming. So the loop
+# lives in the process instead: `--ensure-loop` runs the identical pass every
+# DPI_ENSURE_PERIOD (60) seconds. The timer now only starts this once.
+Type=simple
+# systemd-journald is masked on this firmware; its journal socket does not
+# exist. qmanager_dpi_run records actionable messages through qlog, so discard
+# unit stdout/stderr (otherwise systemd warns about the missing socket).
+StandardOutput=null
+StandardError=null
+Environment=PATH=/data/qmanager/bin:/usr/local/sbin:/usr/local/bin:/usr/bin:/usr/sbin:/bin:/sbin
+ExecStart=/data/qmanager/bin/qmanager_dpi_run --ensure-loop
+Restart=always
+RestartSec=60
+
+[Install]
+WantedBy=multi-user.target

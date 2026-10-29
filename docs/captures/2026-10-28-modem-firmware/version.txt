@@ -1,0 +1,124 @@
+# SIM8260E identity capture — 2026-10-28 18:2x UTC (device uptime 9126 s, no reboot during capture)
+# Host: zlt-x16-root (192.168.3.1).  AT entry point: /bin/atcmd (vendor CLI -> atcmd_daemon).
+#
+# cmd: for c in "ATI" "AT+CGMI" "AT+CGMM" "AT+CGMR" "AT+CSUB" "AT+SIMCOMATI"; do timeout 6 atcmd "$c"; done
+
+----- ATI
+atcmd_receive:
+Manufacturer: SIMCOM INCORPORATED
+Model: SIMCOM_SIM8260E
+Revision: V1.0.01
+IMEI: <imei-redacted>
++GCAP: +CGSM
+
+OK
+
+----- AT+CGMI
+atcmd_receive:
+SIMCOM INCORPORATED
+
+OK
+
+----- AT+CGMM
+atcmd_receive:
+SIMCOM_SIM8260E
+
+OK
+
+----- AT+CGMR
+atcmd_receive:
++CGMR: 2212B01X62M88A-LGA_CUS_TZ
+
+OK
+
+----- AT+CSUB
+atcmd_receive:
++CSUB: B01V22
++CSUB: SDX65_LE12_LGA_M88_TZ_V1.00_230410
+
+OK
+
+----- AT+SIMCOMATI
+atcmd_receive:
+Manufacturer: SIMCOM INCORPORATED
+Model: SIMCOM_SIM8260E
+Revision: 2212B01X62M88A-LGA_CUS_TZ
+IMEI: <imei-redacted>
+
+OK
+
+----- AT+CSQ   (link sanity at capture time)
+atcmd_receive:
++CSQ: 31,99
+
+OK
+
+# --- Supporting filesystem evidence (same session, read-only) ---
+
+# /proc/mtd  (flash layout: one Qualcomm boot chain, not a host + a separate modem)
+mtd0  00280000  "sbl"
+mtd1  00280000  "mibib"
+mtd2  00e00000  "efs2_bak"
+mtd3  00d00000  "efs2"
+mtd4  001c0000  "tz"
+mtd5  00100000  "tz_devcfg"
+mtd6  00180000  "ddr"
+mtd7  00100000  "apdp"          <- attestation / secure-boot provisioning
+mtd8  00100000  "xbl_config"
+mtd9  00100000  "xbl_ramdump"
+mtd10 00100000  "multi_image"
+mtd11 00100000  "multi_image_qti"
+mtd12 00100000  "aop"
+mtd13 00100000  "qhee"
+mtd14 00100000  "abl"
+mtd15 00280000  "uefi"
+mtd16 00180000  "toolsfv"
+mtd17 00180000  "loader_sti"
+mtd18 01300000  "boot"
+mtd19 00100000  "logfs"
+mtd20 06b40000  "modem"         <- 109.8 MB MPSS image
+mtd21 00200000  "simcom"        <- SIMCom vendor partition
+mtd22 001c0000  "misc"
+mtd23 00180000  "devinfo"
+mtd24 01500000  "recovery"
+mtd25 001c0000  "fota"
+mtd26 00100000  "sec"
+mtd27 00100000  "ipa_fw"
+mtd28 00100000  "usb_qti"
+mtd29 0eb00000  "system"
+mtd30 02300000  "oemdata"
+mtd31 22200000  "userdata"
+
+# /firmware/image  (read-only rootfs carries the module's own image set: 226 files)
+Data20.msc  Ver_Info.txt  amss20.bin  cmnlib.mbn  cmnlib.mdt  hpbtfw20.tlv
+keymaster.mbn  keymasterapp32.mbn  modem.mdt  modem_pr/  modemr.jsn
+olympic/qdsp6m.qdb  qwes.mbn  tzsc.mbn  bdwlan.e00..eXX  modem.b00..modem.b28  (29 modem.b* files)
+
+# /firmware/image/Ver_Info.txt  (Qualcomm metabuild this unit boots)
+modem     MPSS.DE.2.0-01026-OLYMPIC_GENALL_PACK-1
+apps      LE.UM.6.2.3.r1-06200-SDX65.0-1
+boot      BOOT.MXF.1.1.1-00175-Olympic-1
+tz        TZ.FU.5.15-00070-OLYMPICAAAAANAZT-1
+aop       AOP.HO.3.3-00046-OLYMPICAAAAANAZO-1
+Time_Stamp 2023-02-15 17:44:35
+
+# kernel
+Linux sdxlemur 5.4.210-perf #7 PREEMPT Fri Jan 5 14:02:11 CST 2024 armv7l GNU/Linux
+
+# --- Modem health at capture time (for the "is firmware crashing?" question) ---
+/sys/bus/msm_subsys/devices/subsys0: modem ONLINE
+/sys/bus/msm_subsys/devices/subsys1: ipa_fws OFFLINING
+dmesg (1126 lines, whole 2.5 h boot) grep -iE "ssr|subsys|esoc|modem.*(crash|restart|reset|fatal)"
+  -> only the normal power-up sequence at 12.4–22.0 s; no SSR / no modem restart / no watchdog bark.
+
+# --- Vendor upgrade tooling present on the device ---
+/bin/tz_upgrade_client   (present, not running; strings include: platform_software_version,
+                          module_version, module_phy_version, module_hlp_version,
+                          modem_chip_firmware_version, modem_chip_bootloader_version,
+                          modem_chip_kernel_version, TZ_FOTA_URL, /home/tzsoft/sunsea-x62/...)
+/bin/fota                (present, not running; config-driven, no hardcoded URL — see docs/21)
+/etc/initscripts/start_fota, /etc/initscripts/start_upgrade_client.sh
+absent: QFirehose, qdl, fh_loader, QFIL, any SIMCom flash tool in PATH.
+
+# AT commands deliberately NOT sent (they hang atcmd_daemon, see AGENTS.md §6):
+#   AT+CLAC, AT+CNBP?, AT+CSYSSEL=?, AT+COPS=?

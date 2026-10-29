@@ -1,0 +1,86 @@
+#!/bin/sh
+# zlt-wan-recovery -- measure how long each WAN outage actually lasts.
+#
+# READ-ONLY with respect to the network: this never dials, never touches the
+# dialer, never sends AT or QMI. It reads the vendor dialer's own log and writes
+# one line per outage plus a daily count.
+#
+# Why it exists rather than "just fix the 60 s": docs/29 measured the vendor
+# dialer noticing a dropped bearer in ~0.1 s and then doing nothing until one of
+# two ~50-60 s watchdogs fires, giving a 2-60 s scatter. Shortening that needs a
+# change (USR_NW_AUTO_QUERY_INTERVAL, currently 10, units unverified) that cannot
+# be validated while drops are absent -- so first, a record of what actually
+# happens, on /data (which survives the boot that wipes /data/log).
+#
+# Evidence it writes:
+#   /data/zlt-wan-recovery.log      one line per outage: start, duration, count
+#   /data/zlt-wan-recovery.state    byte offset into the dialer log, and counters
+set -u
+DL=${DL:-/tmp/logs/DIALER.log}
+LOG=${LOG:-/data/zlt-wan-recovery.log}
+ST=${ST:-/data/zlt-wan-recovery.state}
+INTERVAL=${INTERVAL:-5}
+
+# Own pid, because stopping by pattern is impossible here: the command line that
+# starts this file contains its own path, so `pkill -f zlt-wan-recovery` kills the
+# session that issued it (learned twice: sampler, then here).
+echo $$ > "${PIDF:-/data/zlt-wan-recovery.pid}" 2>/dev/null
+
+off=0
+drops_today=0
+t0=""
+day=$(date +%Y-%m-%d)
+
+echo "$(date '+%Y-%m-%d %H:%M:%S') zlt-wan-recovery: watching $DL (interval ${INTERVAL}s)" >> "$LOG"
+
+while :; do
+    if [ -r "$DL" ]; then
+        size=$(wc -c < "$DL" 2>/dev/null | tr -d ' ')
+        size=${size:-0}
+        # rotation/truncation: the vendor log is wiped at boot and on rollover
+        [ "$size" -lt "$off" ] && off=0
+        if [ "$size" -gt "$off" ]; then
+            # only the new bytes
+            chunk=$(tail -c +$((off + 1)) "$DL" 2>/dev/null | head -c 262144)
+            off=$size
+            if [ -n "$chunk" ]; then
+                now=$(date '+%Y-%m-%d %H:%M:%S')
+                while IFS= read -r line; do
+                    # The dialer stamps every line with YYYY-MM-DD HH:MM:SS.micro;
+                    # the DURATION must come from those stamps, not from when this
+                    # loop happened to notice (a 5 s poll that sees both lines in
+                    # one chunk would otherwise report 0 s -- measured, and wrong).
+                    stamp=$(printf '%s' "$line" | cut -c1-19)
+                    case "$line" in
+                        *"Datacall Disconnected"*)
+                            t0=$stamp
+                            drops_today=$((drops_today + 1))
+                            ;;
+                        *"dial successful"*)
+                            if [ -n "$t0" ]; then
+                                e0=$(printf '%s' "$t0" | cut -d" " -f2 | awk -F: "{print \$1*3600+\$2*60+\$3}")
+                                e1=$(printf '%s' "$stamp" | cut -d" " -f2 | awk -F: "{print \$1*3600+\$2*60+\$3}")
+                                d=$((e1 - e0))
+                                [ "$d" -lt 0 ] && d=$((d + 86400))
+                                echo "$stamp OUTAGE recovered_at=$stamp drop_at=$t0 recovery_s=$d drops_today=$drops_today" >> "$LOG"
+                                t0=""
+                            fi
+                            ;;
+                    esac
+                done <<EOF2
+$chunk
+EOF2
+            fi
+        fi
+    fi
+    # day rollover: reset the counter with a marker so a count is never read as
+    # spanning days
+    nd=$(date +%Y-%m-%d)
+    if [ "$nd" != "$day" ]; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S') zlt-wan-recovery: day $day closed with $drops_today drop(s)" >> "$LOG"
+        day=$nd
+        drops_today=0
+    fi
+    printf 'off=%s drops_today=%s day=%s\n' "$off" "$drops_today" "$day" > "$ST" 2>/dev/null
+    sleep "$INTERVAL"
+done

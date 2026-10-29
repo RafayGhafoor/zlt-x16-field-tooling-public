@@ -1,0 +1,94 @@
+X16 AT / NV read-backs — 2026-10-29
+===================================
+Device: 192.168.3.1 (zlt-root), uptime < 1 h, SIM8260E, WAN up.
+Method: /bin/atcmd (the serialised vendor path) under `timeout -s KILL`, with an
+`AT` sanity check after each batch. READ-ONLY: no NV write, no CFUN, no reset.
+
+Reference: docs/42-vendor-at-surface.md, docs/38-atcmd-daemon-internals.md §4.1
+
+
+[1] NV item 2497 — the module serial number (the item AT+MODULE_SN writes)
+--------------------------------------------------------------------------------
+$ timeout -s KILL 20 /bin/atcmd "AT+CNVR=2497,0"
+atcmd_receive:
++CNVR: 1,"4D50303632343033353342444230430000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+
+OK
+rc=0
+
+  hex 4D5030363234303335334244423043 -> ASCII "<module-sn-redacted>"  (15 bytes)
+  the rest is 0x00 padding.
+  This is the read counterpart of atcmd_daemon's set_module_sn_atcmd(), which
+  requires exactly 15 characters and writes AT+CNVW=2497,0,"<hex>".
+
+
+[2] The other three NV items /bin/dialer reads
+--------------------------------------------------------------------------------
+$ /bin/atcmd "AT+CNVR=3180,0"   -> +CNVR: 1,"98A9428621760000000000000000000000000000"
+                                     6 bytes <mac-redacted>   (meaning unconfirmed)
+$ /bin/atcmd "AT+CNVR=4678,0"   -> +CNVR: 1,"5C46B0AC7096"
+                                     6 bytes <mac-redacted>   (meaning unconfirmed)
+$ /bin/atcmd "AT+CNVR=6860,0"   -> +CNVR: 1,"53322D31304443450000...00"
+                                     53322D3130444345 -> ASCII "S2-10DCE"  (padded)
+
+
+[3] The modem failure-manager policy (what reboots the router)
+--------------------------------------------------------------------------------
+$ timeout -s KILL 20 /bin/atcmd "AT+CFAILUREMGRCFG?"
+atcmd_receive:
++CFAILUREMGRCFG: 1,2,60,1800,5,3,120,1800,5,0,0
+
+OK
+rc=0
+
+  Enabled (1), then two trigger groups: (2, 60, 1800, 5) and (3, 120, 1800, 5),
+  then 0,0.  Field order is NOT documented in the binary — it only carries the
+  setter "AT+CFAILUREMGRCFG=%d,%s" and the bare query.
+
+
+[4] Negative result: a dialer command this firmware refuses
+--------------------------------------------------------------------------------
+$ /bin/atcmd "AT+SPENGMD=0,5,2"      (the dialer's RSSI page)
+atcmd_receive:
+ERROR
+
+  So /bin/dialer's command strings are a superset of what this SIM8260E accepts.
+
+
+[5] Channel health after every batch
+--------------------------------------------------------------------------------
+$ /bin/atcmd AT   -> atcmd_receive: OK    (rc=0)
+
+
+[6] Live daemon state (for the port claims in docs/38 §1)
+--------------------------------------------------------------------------------
+$ ls -l /dev/smd*
+crw------- radio radio 245,7  /dev/smd10     crw------- root root 245,8  /dev/smd11
+crw------- root  root  245,9  /dev/smd21     crw------- root root 245,10 /dev/smd22
+crw------- root  root  245,11 /dev/smd38     crw------- radio radio 245,4 /dev/smd7
+crw-rw-r-- radio radio 245,5  /dev/smd8      crw------- radio radio 245,6 /dev/smd9
+crw-r----- radio radio 245,1  /dev/smdcntl0  crw-r----- radio radio 245,2 /dev/smdcntl1
+crw------- root  root  245,3  /dev/smdcntl8
+
+  NO /dev/smd3 — which is the path read_tty_thread's error handler reopens.
+
+$ ls -l /proc/$(pgrep -f '^atcmd_daemon$')/fd
+3 -> /tmp/logs/syslog.log     4 -> /tmp/logs/ATCMD_DAEMON.log
+5 -> /dev/smd8                6 -> /dev/smd9
+7,8,9,10 -> socket:[...]
+
+$ tail -2 /tmp/logs/ATCMD_DAEMON.log
+2026-10-29 17:53:14 [atcmd_daemon] (atcmdd_send_atcmd, 871): Received AT cmd:[AT+CFUN=4]
+2026-10-29 17:53:15 [atcmd_daemon] (atcmdd_send_atcmd, 871): Received AT cmd:[AT+CFUN=1]
+
+
+[7] The bus, as installed
+--------------------------------------------------------------------------------
+$ ls -la /tmp/.sockmsg/            (55 entries; 1-byte files = app not running)
+-rw-r--r-- 1 root root 1  antenna_tuner
+srwxr-xr-x 1 root root 0  atcmd_daemon
+srwxr-xr-x 1 root root 0  configtools
+srwxr-xr-x 1 root root 0  dialer
+...
+$ ls -la /tmp/.tmpsock/
+srwxr-xr-x 1 root root 0  atcmd     <- the CLI's fixed reply socket (docs/38 §2)

@@ -1,0 +1,164 @@
+#!/bin/sh
+# =============================================================================
+# fake-atcmd — deterministic stand-in for the X16's /bin/atcmd
+# =============================================================================
+# Every response below is copied from a real capture on the ZLT X16
+# (docs/captures/at-capture-2026-10-26.txt). The unit tests point the shim at
+# this file with ATC=..., so they run on any machine with no modem.
+#
+# Overridable fixtures let a test drive an edge case without editing the file:
+#   FAKE_CPSI   raw +CPSI line (or "EMPTY")
+#   FAKE_CCA    newline-separated +CCAINFO rows (or "EMPTY")
+#   FAKE_CGCONTRDP  newline-separated +CGCONTRDP rows
+#   FAKE_ATI    raw ATI body
+#   FAKE_FAIL   command name that should answer ERROR
+# =============================================================================
+
+cmd="$1"
+
+# FAKE_CALL_LOG lets a test assert how many times the modem was actually hit.
+[ -n "${FAKE_CALL_LOG:-}" ] && printf '%s\n' "$cmd" >> "$FAKE_CALL_LOG"
+
+echo "atcmd_receive:"
+
+if [ -n "${FAKE_FAIL:-}" ] && [ "$cmd" = "$FAKE_FAIL" ]; then
+    printf 'ERROR\r'
+    exit 0
+fi
+
+if [ -n "${FAKE_BLANK:-}" ] && [ "$cmd" = "$FAKE_BLANK" ]; then
+    exit 0
+fi
+
+# The daemon's file-transfer sentinel (docs/38 §3): an answer too big for its
+# buffer is written to a file and the caller is handed
+# "<path>\r\nATCMD_DAEMON_FILE_OK\r\n". The real path is fixed; the test picks
+# its own to prove the shim parses the path out of the reply instead of assuming it.
+if [ -n "${FAKE_SPILL:-}" ] && [ "$cmd" = "$FAKE_SPILL" ]; then
+    printf '%s\r\nATCMD_DAEMON_FILE_OK\r\n' "${FAKE_SPILL_PATH:-/tmp/.atcmd_daemon_transfer}"
+    exit 0
+fi
+
+# The daemon's own failure literal (docs/38 §2) — not a modem answer.
+if [ -n "${FAKE_DAEMON_ERR:-}" ] && [ "$cmd" = "$FAKE_DAEMON_ERR" ]; then
+    printf 'Atcmd_daemon get At_Response Error\r'
+    exit 0
+fi
+
+# Emulates the failure that wedged the vendor daemon on 2026-10-26: a command
+# the modem never answers. The shim must time it out, blacklist it, and never
+# queue anything behind it again.
+if [ -n "${FAKE_HANG:-}" ] && [ "$cmd" = "$FAKE_HANG" ]; then
+    sleep 30
+    exit 0
+fi
+
+case "$cmd" in
+  "AT+CPSI?")
+      if [ "${FAKE_CPSI:-unset}" = "EMPTY" ]; then
+          printf '\r\nOK\r'
+      else
+          printf '%s\r\n\r\nOK\r' "${FAKE_CPSI:-+CPSI: LTE,Online,410-03,0x29DD,212150373,256,EUTRAN-BAND3,1312,5,5,-80,-947,-668,15}"
+      fi
+      ;;
+
+  'AT+QENG="neighbourcell"')
+      if [ -n "${FAKE_NEIGHBOUR_FILE:-}" ] && [ -r "$FAKE_NEIGHBOUR_FILE" ]; then
+          cat "$FAKE_NEIGHBOUR_FILE"
+          printf '\r\nOK\r'
+      else
+          printf 'ERROR\r'
+      fi
+      ;;
+
+
+  'AT+CRSRP?')
+      if [ "${FAKE_CRSRP:-unset}" = "EMPTY" ]; then
+          printf 'ERROR\r'
+      else
+          printf '%s\r\n' "${FAKE_CRSRP:-+CRSRP: LTE,-97,-98,-90,-89
++CRSRP: NR5G,-74,-76,-83,-75}"
+          printf '\r\nOK\r'
+      fi
+      ;;
+
+  'AT+CSINR?')
+      if [ "${FAKE_CSINR:-unset}" = "EMPTY" ]; then
+          printf 'ERROR\r'
+      else
+          printf '%s\r\n' "${FAKE_CSINR:-+CSINR: LTE,8,0,8,8
++CSINR: NR5G,22,20,13,20}"
+          printf '\r\nOK\r'
+      fi
+      ;;
+
+  'AT+CRSSI?')     printf '+CRSSI: LTE,-63,-63,-59,-59\r\n+CRSSI: NR5G,-64,-65,-71,-65\r\n\r\nOK\r' ;;
+
+  "AT+CCELLCFG?")
+      printf '+CCELLCFG: %s\r\n\r\nOK\r' "${FAKE_CCELLCFG:-0,0}"
+      ;;
+  AT+CCELLCFG=0|AT+CCELLCFG=1,*) printf 'OK\r' ;;
+
+  "AT+CCAINFO?")
+      if [ "${FAKE_CCA:-unset}" = "EMPTY" ]; then
+          printf '\r\nOK\r'
+      elif [ -n "${FAKE_CCA:-}" ]; then
+          printf '%s\r\n' "$FAKE_CCA"
+          printf '\r\nOK\r'
+      else
+          printf '%s\r\n' \
+            '+CCAINFO: "PCC",EUTRAN_BAND3,1312,100,256,-94,-8,-66,200' \
+            '+CCAINFO: "SCC",EUTRAN_BAND1,150,50,502,2,-108,-9,-82,134,2,3,9' \
+            '+CCAINFO: "SCC",EUTRAN_BAND5,2450,50,469,1,-92,-11,-71,133,0'
+          printf '\r\nOK\r'
+      fi
+      ;;
+
+  "AT+CICCID")   printf '+ICCID: 89410037251217291419\r\n\r\nOK\r' ;;
+  "ATI")         printf '%s\r\n\r\nOK\r' "${FAKE_ATI:-Manufacturer: SIMCOM INCORPORATED
+Model: SIMCOM_SIM8260E
+Revision: V1.0.01
+IMEI: <imei-redacted>
++GCAP: +CGSM}" ;;
+  "AT+CGMR")     printf '+CGMR: 2212B01X62M88A-LGA_CUS_TZ\r\n\r\nOK\r' ;;
+  "AT+CGMM")     printf 'SIMCOM_SIM8260E\r\n\r\nOK\r' ;;
+  "AT+CGSN")     printf '<imei-redacted>\r\n\r\nOK\r' ;;
+  "AT+CIMI")     printf '<imsi-redacted>\r\n\r\nOK\r' ;;
+  "AT+CNUM")     printf 'OK\r' ;;
+  "AT+CPIN?")    printf '+CPIN: READY\r\n\r\nOK\r' ;;
+  "AT+CSQ")      printf '+CSQ: 24,99\r\n\r\nOK\r' ;;
+  "AT+CFUN?")    printf '+CFUN: 1\r\n\r\nOK\r' ;;
+  "AT+COPS?")    printf '+COPS: 0,0,"Onic",7\r\n\r\nOK\r' ;;
+  "AT+CGATT?")   printf '+CGATT: 1\r\n\r\nOK\r' ;;
+  "AT+CEREG?")   printf '+CEREG: 0,1\r\n\r\nOK\r' ;;
+  "AT+C5GREG?")  printf '+C5GREG: 0,0\r\n\r\nOK\r' ;;
+  "AT+CNMP?")    printf '+CNMP: 2\r\n\r\nOK\r' ;;
+  "AT+CGACT?")   printf '+CGACT: 1,1\r\n+CGACT: 6,1\r\n+CGACT: 2,0\r\n\r\nOK\r' ;;
+  "AT+CGDCONT?") printf '+CGDCONT: 1,"IP","GPRS.SWISSCOM.CH","0.0.0.0",0,0,0,0,,,,,,,,,"",,,,0\r\n+CGDCONT: 6,"IP","Ufone.internet","0.0.0.0",0,0,0,0,,,,,,,,,"",,,,0\r\n\r\nOK\r' ;;
+
+  "AT+CGCONTRDP")
+      if [ -n "${FAKE_CGCONTRDP:-}" ]; then
+          printf '%s\r\n' "$FAKE_CGCONTRDP"
+          printf '\r\nOK\r'
+      else
+          printf '%s\r\n' \
+            '+CGCONTRDP: 1,5,"GPRS.SWISSCOM.CH",10.198.195.55,,39.39.39.39,182.176.100.89' \
+            '+CGCONTRDP: 6,6,"Ufone.internet",10.220.84.156,,39.39.39.39,182.176.100.89'
+          printf '\r\nOK\r'
+      fi
+      ;;
+
+  'AT+CSYSSEL="lte_band"')     printf '+CSYSSEL: "lte_band",1:3:5:41\r\n\r\nOK\r' ;;
+  # Writes. The real atcmd answers a bare OK; echoing the command back is a
+  # test-only affordance so an assertion can prove WHICH translated command was
+  # sent (the shim must not, say, forward the Quectel bitmask untouched).
+  'AT+CSYSSEL="lte_band",'*|'AT+CSYSSEL="nr5g_band",'*|'AT+CSYSSEL="nsa_nr5g_band",'*)
+      printf '%s\r\n\r\nOK\r' "$1" ;;
+  'AT+CSYSSEL="nr5g_band"')    printf '+CSYSSEL: "nr5g_band",1:8:40:41:78\r\n\r\nOK\r' ;;
+  'AT+CSYSSEL="nsa_nr5g_band"') printf '+CSYSSEL: "nsa_nr5g_band",1:8:40:41:78\r\n\r\nOK\r' ;;
+  'AT+CSYSSEL="nr5g_disable"') printf '+CSYSSEL: "nr5g_disable",0\r\n\r\nOK\r' ;;
+  "AT+CSYSSEL=?")  printf '+CSYSSEL: "nr5g_disable",(0-2)\r\n+CSYSSEL: "nr5g_band",1:3:5:7:8:<mac-redacted>:48:77:78:79\r\n+CSYSSEL: "nsa_nr5g_band",1:3:5:7:8:<mac-redacted>:48:77:78:79\r\n+CSYSSEL: "lte_band",1:3:5:7:8:<mac-redacted>:<mac-redacted>:46:48\r\n\r\nOK\r' ;;
+  "AT+QTEMP")      printf 'ERROR\r' ;;
+  "AT+CMGS"*)      printf 'ERROR\r' ;;
+  *)               printf 'OK\r' ;;
+esac

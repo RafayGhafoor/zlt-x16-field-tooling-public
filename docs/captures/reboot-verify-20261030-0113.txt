@@ -1,0 +1,97 @@
+Reboot verification — 2026-10-30 01:16 (pre-reboot state captured 20261030 0113)
+Why: three boot hooks added to /etc/initscripts/StartTZApp today (atcmd-guard,
+gnss-off) plus two earlier ones, after breaking that file twice (shebang above line 1,
+then a lost mode bit). AGENTS §6 requires a reboot + re-check for anything that must
+survive boot.
+
+################ PRE
+== PRE-REBOOT STATE 2026-10-30 01:13:20 ==
+-- uptime --
+ 01:13:20 up  7:20,  load average: 1.78, 1.31, 1.11
+-- boot script --
+mode=755 line1=#!/bin/sh exec=y parse=y
+-- hooks, in order --
+3:[ -x /data/zlt-atcmd-guard/guard.sh ] && /bin/systemctl start zlt-atcmd-guard.timer >/dev/null 2>&1
+5:[ -x /data/zlt-gnss-off/gnss-off.sh ] && /data/zlt-gnss-off/gnss-off.sh quiet-stop
+7:[ -x /etc/initscripts/zlt-wan-recovery ] && /etc/initscripts/zlt-wan-recovery >/dev/null 2>&1 &
+9:[ -x /etc/initscripts/zlt-cpufreq ] && /etc/initscripts/zlt-cpufreq >/dev/null 2>&1 &
+-- what must come back --
+atcmd_guard_timer=active gnss=inactive/masked atfwd=active poller=active httpd=active webrtc=active sshd=inactive
+n/a telnetd=down
+-- atcmd daemon --
+pid=26280 fds=2/2 baseline=yes
+-- cpu governor (cpufreq hook) --
+performance
+-- ttl rule (ttlnorm hook) --
+missing
+-- WAN --
+  route_if=rmnet_data0
+2 packets transmitted, 2 received, 0% packet loss, time 1000ms
+rtt min/avg/max/mdev = 90.869/94.062/97.255/3.193 ms
+-- LAN (this ssh) --
+  o=192.168.3.1 reachable
+-- files that must keep their mode --
+  755 /data/qmanager/bin/atcli_smd11
+  755 /data/qmanager/www/cgi-bin/quecmanager/cellular/settings.sh
+-- dialer AT failures so far --
+0
+0
+
+################ POST (90 s after reboot, then 20 s settle)
+== POST-REBOOT 01:16:07 ==
+-- did it reboot --
+  uptime_s=134 (2.2 min)
+-- boot script survived the boot --
+  mode=755 line1=#!/bin/sh exec=y parse=y
+-- HOOK PROOF: units under /etc/systemd/system get no boot job, so the timer can only be up if the hook ran --
+  atcmd-guard timer : enabled / active
+  guard last run    : 
+  guard baseline    : written   guard log lines: 2
+  cpu governor      : performance  (performance = cpufreq hook ran)
+  wan-recovery      : running (log lines: 13)
+-- gnss stays off --
+  unit=inactive/masked daemon=gone
+  boot log: 2026-10-30 01:14:32 simcom-gnss.service stopped at boot
+-- the AT channel --
+  pid=1508 smd8+smd9=2/2  AT=OK
+-- services --
+  atfwd=active poller=active httpd=active webrtc=active
+  status.json: Oct 30 01:16
+-- file modes persisted --
+  755 /data/qmanager/bin/atcli_smd11
+  755 /data/qmanager/www/cgi-bin/quecmanager/cellular/settings.sh
+-- WAN / LAN --
+  route_if=rmnet_data0
+2 packets transmitted, 2 received, 0% packet loss, time 1001ms
+rtt min/avg/max/mdev = 94.637/97.812/100.987/3.175 ms
+-- dialer AT failures since boot --
+0
+0
+
+################ LOGS AFTER THE REBOOT
+--- zlt-atcmd-guard.log (NOT wiped: 2 lines from the 2026-10-29 test survive) ---
+2026-10-29 22:30:21 RESTART (reason=urc-thread-lost, pid=14455): kill -9 + start_atcmd_daemon
+2026-10-29 22:30:23 PARTIAL pid=26280 is up but has no /dev/smd9 fd yet (after 1s)
+
+--- zlt-gnss-off.log (this boot) ---
+2026-10-30 01:14:32 simcom-gnss.service stopped at boot
+
+--- /data/log persistence ---
+  Oct 28 20:40 ca-sample.log
+  Oct 28 20:09 cpu-watch.log
+  Oct 26 06:24 dmesg-watch.log
+  Oct 30 01:14 ipacm-wan-learned
+  Oct 30 01:16 ipacm.log
+  Oct 26 05:09 ipacm.log.1
+  Oct 26 05:06 ipacm.log.before-restart
+  Oct 28 21:15 mp-churn.log
+
+################ VERDICT
+  StartTZApp execve's: mode 755, line1 #!/bin/sh, parses (survived the boot it would have broken)
+  hook ran           : zlt-atcmd-guard.timer active (units under /etc/systemd/system get no boot job)
+  hook ran (2)       : cpufreq governor=performance, wan-recovery watching, gnss stopped at 01:14:32
+  mask NOT enough    : simcom-gnss.service did start, the hook stopped it (see its boot log)
+  AT channel         : atcmd_daemon pid 1508, smd8+smd9, AT -> OK
+  WAN/LAN            : rmnet_data0, ping 0% loss, ssh over LAN
+  services           : atfwd/poller/httpd/webrtc active, status.json fresh
+  dialer AT failures : 0

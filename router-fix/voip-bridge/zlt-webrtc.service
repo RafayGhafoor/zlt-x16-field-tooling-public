@@ -1,0 +1,18 @@
+[Unit]
+Description=ZLT X16 call terminal (VoLTE call audio in the browser)
+Documentation=file:/data/webrtc/README.md
+After=network.target
+
+[Service]
+Type=forking
+PIDFile=/tmp/x16-webrtc.pid
+ExecStart=/data/webrtc/bin/zlt-webrtc.sh start
+ExecStop=/data/webrtc/bin/zlt-webrtc.sh stop
+Restart=on-failure
+RestartSec=5
+# The PCMIO tap is timing-sensitive on a single core; keep the bridge ahead of
+# bulk work but never as a realtime process (the vendor library is not RT-safe).
+Nice=-5
+
+[Install]
+WantedBy=multi-user.target

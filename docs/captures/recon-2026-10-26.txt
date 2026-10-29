@@ -1,0 +1,430 @@
+
+===== identity =====
+Linux sdxlemur 5.4.210-perf #7 PREEMPT Fri Jan 5 14:02:11 CST 2024 armv7l GNU/Linux
+cores: 1
+{
+    "Image_Build_IDs": {
+        "aop": "AOP.HO.3.3-00046-OLYMPICAAAAANAZO-1", 
+        "apps": "LE.UM.6.2.3.r1-06200-SDX65.0-1", 
+        "boot": "BOOT.MXF.1.1.1-00175-Olympic-1", 
+        "btfm": "BTFW.HSP.2.1.0-00468-PATCHZ-2", 
+        "btfm_hsp": "BTFW.HSP.2.0.0-00610-HSP_PATCHZ-1", 
+        "common": ".", 
+        "glue": "GLUE.OLYMPIC_LE.1.2-00080-NOOP_TEST-2", 
+        "lnx_host": "LE.LNXHOSTSW.1.0-05800-LNXHOSTSW.0-1", 
+        "modem": "MPSS.DE.2.0-01026-OLYMPIC_GENALL_PACK-1", 
+        "tz": "TZ.FU.5.15-00070-OLYMPICAAAAANAZT-1", 
+        "tz_apps": "TZ.APPS.1.15-00036-OLYMPICAAAAANAZT-1", 
+        "wlan_hsp": "WLAN.HSP.1.1.3-00545-QCAHSPSWPL_V1_V2_SILICONZ_LITE-1", 
+        "wlan_pine": "WLAN.SDX_PINE.1.0-00645-QCAHKSWPL_SILICONZ-1"
+    }, 
+    "Metabuild_Info": {
+        "Meta_Build_ID": ".", 
+        "Product_Flavor": "[None]", 
+        "Time_Stamp": "2023-02-15 17:44:35"
+X168602500600125313523.32 2775.89
+
+===== memory =====
+MemTotal:         661264 kB
+MemAvailable:     499584 kB
+
+===== storage =====
+Filesystem                Size      Used Available Use% Mounted on
+ubi0:rootfs             184.5M    140.6M     43.9M  76% /
+devtmpfs                310.4M         0    310.4M   0% /dev
+tmpfs                   322.9M         0    322.9M   0% /dev/shm
+tmpfs                   322.9M      1.0M    321.9M   0% /run
+tmpfs                   322.9M         0    322.9M   0% /sys/fs/cgroup
+tmpfs                   173.5M      9.0M    164.5M   5% /etc/machine-id
+tmpfs                   322.9M      4.0K    322.9M   0% /var/volatile
+ubi0:systemrw             2.3M     24.0K      2.1M   1% /systemrw
+/dev/ubi1_0              74.7M     73.7M      1.0M  99% /firmware
+tmpfs                   322.9M      1.6M    321.3M   0% /tmp
+/dev/ubi2_0             173.5M      9.0M    164.5M   5% /userdata
+/dev/ubi2_0             173.5M      9.0M    164.5M   5% /etc
+/dev/ubi2_0             173.5M      9.0M    164.5M   5% /data
+/dev/ubi2_0             173.5M      9.0M    164.5M   5% /persist
+/dev/ubi2_1             297.0M     32.0K    292.2M   0% /cache
+/dev/ubi3_0               9.1M    216.0K      8.9M   2% /productinfo
+tmpfs                   322.9M      4.0K    322.9M   0% /var/lib
+/dev/ubi2_0             173.5M      9.0M    164.5M   5% /home/root/.ssh
+major minor  #blocks  name
+
+   1        0       4096 ram0
+   1        1       4096 ram1
+   1        2       4096 ram2
+   1        3       4096 ram3
+   1        4       4096 ram4
+   1        5       4096 ram5
+   1        6       4096 ram6
+   1        7       4096 ram7
+   1        8       4096 ram8
+   1        9       4096 ram9
+   1       10       4096 ram10
+   1       11       4096 ram11
+   1       12       4096 ram12
+   1       13       4096 ram13
+   1       14       4096 ram14
+   1       15       4096 ram15
+ 254        0     330632 zram0
+  31        0       2560 mtdblock0
+  31        1       2560 mtdblock1
+  31        2      14336 mtdblock2
+  31        3      13312 mtdblock3
+  31        4       1792 mtdblock4
+  31        5       1024 mtdblock5
+  31        6       1536 mtdblock6
+  31        7       1024 mtdblock7
+  31        8       1024 mtdblock8
+  31        9       1024 mtdblock9
+  31       10       1024 mtdblock10
+  31       11       1024 mtdblock11
+  31       12       1024 mtdblock12
+  31       13       1024 mtdblock13
+  31       14       1024 mtdblock14
+  31       15       2560 mtdblock15
+  31       16       1536 mtdblock16
+  31       17       1536 mtdblock17
+  31       18      19456 mtdblock18
+  31       19       1024 mtdblock19
+  31       20     109824 mtdblock20
+  31       21       2048 mtdblock21
+  31       22       1792 mtdblock22
+  31       23       1536 mtdblock23
+  31       24      21504 mtdblock24
+  31       25       1792 mtdblock25
+  31       26       1024 mtdblock26
+  31       27       1024 mtdblock27
+  31       28       1024 mtdblock28
+  31       29     240640 mtdblock29
+  31       30      35840 mtdblock30
+  31       31     559104 mtdblock31
+ubi0:rootfs on / type ubifs (ro,relatime,bulk_read,assert=read-only,ubi=0,vol=0)
+tmpfs on /tmp type tmpfs (rw,nosuid,nodev)
+/dev/ubi2_0 on /etc type ubifs (rw,relatime,bulk_read,assert=read-only,ubi=2,vol=0)
+/dev/ubi2_0 on /data type ubifs (rw,relatime,bulk_read,assert=read-only,ubi=2,vol=0)
+
+===== processes =====
+PID   USER     TIME  COMMAND
+    1 root      0:07 {systemd} /sbin/init
+    2 root      0:00 [kthreadd]
+    3 root      0:00 [rcu_gp]
+    4 root      0:00 [rcu_par_gp]
+    6 root      0:00 [kworker/0:0H-ev]
+    7 root      0:35 [kworker/u2:0-me]
+    8 root      0:00 [mm_percpu_wq]
+    9 root      0:06 [ksoftirqd/0]
+   10 root      0:04 [rcu_preempt]
+   11 root      0:00 [kdevtmpfs]
+   13 root      0:00 [netns]
+   14 root      0:00 [rcu_tasks_kthre]
+   15 root      0:00 [kauditd]
+   16 root      0:00 [qrtr_ns]
+   17 root      0:04 [kworker/u2:1+au]
+   18 root      0:00 [msm-watchdog]
+   20 root      0:00 [qmp_aop]
+   21 root      0:00 [oom_reaper]
+   22 root      0:00 [writeback]
+   23 root      0:00 [kcompactd0]
+   57 root      0:00 [kblockd]
+   58 root      0:00 [irq/93-tsens-up]
+   59 root      0:00 [irq/94-tsens-cr]
+   60 root      0:00 [devfreq_wq]
+   61 root      0:00 [ipa_usb_wq]
+   62 root      0:00 [mpcie_wq]
+   63 root      0:00 [system]
+   64 root      0:00 [audio_carveout]
+   65 root      0:00 [cfg80211]
+   66 root      0:00 [kswapd0:0]
+   68 root      0:00 [irq/33-smp2p]
+   70 root      0:00 [atlantic-fwd]
+   71 root      0:00 [k_ipa_usb]
+   73 root      0:00 [dm_bufio_cache]
+   74 root      0:00 [qcrypto_seq_res]
+   75 root      0:00 [memlat_wq]
+   76 root      0:00 [irq/101-c440000]
+   78 root      0:00 [ipv6_addrconf]
+   79 root      0:00 [dsa_ordered]
+   85 root      0:00 [byte-cntr]
+   86 root      0:00 [etr_pcie]
+   87 root      0:00 [irq/100-qcom,te]
+   88 root      0:00 [irq/98-threshol]
+   89 root      0:00 [ipa_power_mgmt]
+   90 root      0:00 [transport_power]
+   91 root      0:00 [page_recycle_st]
+   92 root      0:00 [ipa_pm_activate]
+   93 root      0:00 [irq/41-arm-smmu]
+   94 root      0:00 [irq/49-arm-smmu]
+   95 root      0:00 [hwrng]
+   96 root      0:00 [qseecom-unreg-l]
+   97 root      0:00 [qseecom-unload-]
+   99 root      0:00 [irq/50-arm-smmu]
+  100 root      0:00 [irq/59-arm-smmu]
+  121 root      0:00 [irq/78-int_glob]
+  122 root      0:00 [irq/54-arm-smmu]
+  123 root      0:00 [irq/60-arm-smmu]
+  124 root      0:00 [irq/52-arm-smmu]
+  125 root      0:00 [irq/61-arm-smmu]
+
+===== listening sockets =====
+Active Internet connections (only servers)
+Proto Recv-Q Send-Q Local Address           Foreign Address         State       PID/Program name    
+tcp        0      0 192.168.3.1:7777        0.0.0.0:*               LISTEN      1416/qmi_ip_multicl
+tcp        0      0 0.0.0.0:53              0.0.0.0:*               LISTEN      2029/dnsmasq
+tcp        0      0 0.0.0.0:22              0.0.0.0:*               LISTEN      19109/dropbear
+tcp        0      0 :::80                   :::*                    LISTEN      1207/mini_httpd
+tcp        0      0 :::53                   :::*                    LISTEN      2029/dnsmasq
+tcp        0      0 :::22                   :::*                    LISTEN      19109/dropbear
+tcp        0      0 :::23                   :::*                    LISTEN      5231/busybox
+tcp        0      0 :::443                  :::*                    LISTEN      1643/mini_httpd
+
+===== init / units =====
+systemd 244 (244.5+)
+  UNIT                               LOAD   ACTIVE SUB     DESCRIPTION                                 
+● adbd.service                       loaded failed failed  adbd Service                                
+  adpld.service                      loaded active running adpl service                                
+  agm_server.service                 loaded active running Agm Server Init                             
+  alsa.service                       loaded active running Alsa_daemon Service                         
+  atfwd.service                      loaded active running Atfwd_daemon Service                        
+  bluetooth_power.service            loaded active exited  Bluetooth Power Service                     
+  bscfr.service                      loaded active running osm_framework Service                       
+  bscpr.service                      loaded active running Basic_Provider Service                      
+  busybox-syslog.service             loaded active running System Logging Service                      
+  chg-policy.service                 loaded active exited  Charger Policy Service                      
+  dbus.service                       loaded active running D-Bus System Message Bus                    
+  diag-reboot-app.service            loaded active running diagrebootapp service                       
+  diag-router.service                loaded active running diag-router Service                         
+  dnsmasq_service@0.service          loaded active exited  dnsmasq service                             
+  earlyinit-logd.service             loaded active running Logd logging Service                        
+  embmsd.service                     loaded active exited  Embms kernel service                        
+  enable_autosleep.service           loaded active exited  Setting the power config                    
+  init_audio.service                 loaded active exited  Audio Init Service                          
+  init_post_boot.service             loaded active exited  QTI Post Boot Service                       
+  init_sys_mss.service               loaded active running Modem Init Service                          
+● ipacm.service                      loaded failed failed  IPACM Service                               
+  irsc_util.service                  loaded active exited  irsc-util Service                           
+  logd.service                       loaded active exited  logd logging service                        
+● mbim_copybind.service              loaded failed failed  QTI Mobile Broadband Copybind Service       
+  mbimd_nonopt.service               loaded active running QTI Mobile Broadband Service (Non Optimized)
+  netlink_monitor.service            loaded active running netlink_monitor service                     
+  netmgrd.service                    loaded active running Netmgrd Service                             
+● ninfod.service                     loaded failed failed  Respond to IPv6 Node Information Queries    
+● pcie-diag.service                  loaded failed failed  pcie-diag Service                           
+  port_bridge.service                loaded active running Port bridge Service                         
+  power_config.service               loaded active exited  Setting the power config                    
+  qca-macsec.service                 loaded active exited  Loading of qca-macsec kernel modules        
+  qca-wifi.service                   loaded active exited  QCA WIFI service                            
+● QCMAP_Bootup.service               loaded failed failed  QCMAP_Bootup service                        
+  QCMAP_ConnectionManagerd.service   loaded active running QCMAP connectionManager service             
+  QCMAP_Web_CLIENT.service           loaded active running QCMAP_Web_CLIENT service                    
+● qcmap_wlan.service                 loaded failed failed  WLAN service                                
+  qcmap_wlan_bootup.service          loaded active exited  WLAN Bootup service                         
+  qmi_ip_multiclientd.service        loaded active running qmi_ip_multiclient service                  
+  qmi_shutdown_modemd.service        loaded active running Modem Shutdown Service                      
+  qmuxbridged.service                loaded active running Qmuxbridge Service                          
+● qps615.service                     loaded failed failed  Loading of QPS615 kernel modules            
+  qrtr_ns.service                    loaded active running qrtr-ns Service                             
+  qseecomd.service                   loaded active exited  Qseecomd Service                            
+  qtid.service                       loaded active running qti service                                 
+  qwesd.service                      loaded active exited  Qwesd Service                               
+● rdisc.service                      loaded failed failed  Network Router Discovery Daemon             
+  reboot-daemon.service              loaded active running reboot-daemon service                       
+  rfsd.service                       loaded active running simcom remote file system daemon Service    
+--- enabled in multi-user.target.wants ---
+total 0
+lrwxrwxrwx    1 root     root            33 Jan  1  1970 TZApp.service -> /etc/systemd/system/TZApp.service
+lrwxrwxrwx    1 root     root            38 Jan  1  1970 agm_server.service -> /etc/systemd/system/agm_server.service
+lrwxrwxrwx    1 root     root            42 Jan  1  1970 busybox-syslog.service -> /lib/systemd/system/busybox-syslog.service
+lrwxrwxrwx    1 root     root            38 Jan  1  1970 chg-policy.service -> /lib/systemd/system/chg-policy.service
+lrwxrwxrwx    1 root     root            44 Jan  1  1970 enable_autosleep.service -> /lib/systemd/system/enable_autosleep.service
+lrwxrwxrwx    1 root     root            34 Jan  1  1970 ninfod.service -> /lib/systemd/system/ninfod.service
+lrwxrwxrwx    1 root     root            38 Jan  1  1970 qca-macsec.service -> /lib/systemd/system/qca-macsec.service
+lrwxrwxrwx    1 root     root            36 Jan  1  1970 qca-wifi.service -> /etc/systemd/system/qca-wifi.service
+lrwxrwxrwx    1 root     root            34 Jan  1  1970 qps615.service -> /lib/systemd/system/qps615.service
+lrwxrwxrwx    1 root     root            36 Jan  1  1970 qseecomd.service -> /etc/systemd/system/qseecomd.service
+lrwxrwxrwx    1 root     root            33 Jan  1  1970 rdisc.service -> /lib/systemd/system/rdisc.service
+lrwxrwxrwx    1 root     root            36 Jan  1  1970 remote-fs.target -> /lib/systemd/system/remote-fs.target
+lrwxrwxrwx    1 root     root            37 Jan  1  1970 sfsconfig.service -> /etc/systemd/system/sfsconfig.service
+lrwxrwxrwx    1 root     root            47 Jan  1  1970 start_wlan_services.service -> /etc/systemd/system/start_wlan_services.service
+lrwxrwxrwx    1 root     root            45 Jan  1  1970 subsystem-ramdump.service -> /lib/systemd/system/subsystem-ramdump.service
+lrwxrwxrwx    1 root     root            42 Jan  1  1970 thermal-engine.service -> /etc/systemd/system/thermal-engine.service
+lrwxrwxrwx    1 root     root            41 Jan  1  1970 time_serviced.service -> /etc/systemd/system/time_serviced.service
+lrwxrwxrwx    1 root     root            41 Jan  1  1970 triggerBkScan.service -> /etc/systemd/system/triggerBkScan.service
+lrwxrwxrwx    1 root     root            48 Jan  1  1970 triggerChanPrefQuery.service -> /etc/systemd/system/triggerChanPrefQuery.service
+lrwxrwxrwx    1 root     root            46 Jan  1  1970 triggerTopologyOpt.service -> /etc/systemd/system/triggerTopologyOpt.service
+lrwxrwxrwx    1 root     root            40 Oct 26 02:16 zlt-dropbear.service -> /etc/systemd/system/zlt-dropbear.service
+lrwxrwxrwx    1 root     root            39 Sep  1 09:50 zlt-wan-fix.service -> /etc/systemd/system/zlt-wan-fix.service
+
+===== tooling =====
+curl         /usr/bin/curl
+wget         /usr/bin/wget
+busybox      /bin/busybox
+flock        /usr/bin/flock
+timeout      /usr/bin/timeout
+openssl      /usr/bin/openssl
+microcom     /usr/bin/microcom
+dnsmasq      /usr/bin/dnsmasq
+--- busybox applets of interest ---
+[ [[ acpid add-shell addgroup adduser adjtimex arp arping ash awk base64 basename beep blkid blockdev bootchartd brctl bunzip2 bzcat bzip2 cal cat chattr chgrp chmod chown chpst chroot chrt cksum clear cmp comm cp cpio crond cryptpw cttyhack cut date dc dd delgroup deluser depmod devmem df dhcprelay diff dirname dmesg dnsd dnsdomainname dos2unix du dumpkmap dumpleases echo ed egrep eject env envdir envuidgid ether-wake expand expr fakeidentd false fbset fbsplash fdflush fdformat fdisk fgconsole fgrep find flock fold free freeramdisk fsck fstrim fsync ftpd ftpget ftpput fuser getopt getty grep groups gunzip gzip hd hdparm head hexdump hostid hostname httpd hush hwclock i2ctransfer id ifconfig ifdown ifenslave ifplugd ifup insmod install ionice iostat ip ipaddr ipcalc ipcrm ipcs iplink iproute iprule iptunnel kbd_mode kill killall klogd less ln loadfont loadkmap lock logger logname logread losetup lpd lpq lpr ls lsattr lsmod lsof lspci lsusb lzcat lzma lzop makedevs makemime man md5sum mdev mesg microcom mkdir mkfifo mkfs.vfat mknod mkswap mktemp modinfo modprobe more mountpoint mpstat mt mv nameif nbd-client netstat nice nmeter nohup nproc nslookup ntpd od patch pgrep pidof pipe_progress pivot_root pkill pmap popmaildir powertop printenv printf ps pscan pwd raidautorun rdate rdev readahead readlink readprofile realpath reboot reformime remove-shell renice reset resize rev rm rmdir rmmod route rpm rpm2cpio rtcwake run-parts runsv runsvdir rx script scriptreplay sed sendmail seq setarch setconsole setfont setlogcons setsid setuidgid sh sha1sum sha256sum sha512sum showkey shuf slattach sleep smemcap softlimit sort split start-stop-daemon stat strings stty sulogin sum sv svlogd swapoff swapon switch_root sync sysctl syslogd tac tail tar tcpsvd tee telnet telnetd test tftp tftpd time timeout top touch tr true ts tty ttysize tunctl udhcpc udhcpd udpsvd umount uname unexpand uniq unix2dos unlink unlzma unxz unzip uptime users usleep uudecode uuencode vconfig vi volname watch watchdog wc wget which who whoami xargs xz xzcat yes zcat zcip 
+BusyBox v1.31.1 (2022-08-09 12:14:39 UTC) multi-call binary.
+
+Usage: httpd [-ifv[v]] [-c CONFFILE] [-p [IP:]PORT] [-u USER[:GRP]] [-r REALM] [-h HOME]
+or httpd -d/-e/-m STRING
+
+--- flock -w support ---
+/usr/bin/flock: invalid option -- 'w'
+BusyBox v1.31.1 (2022-08-09 12:14:39 UTC) multi-call binary.
+
+Usage: flock [-sxun] FD|{FILE [-c] PROG ARGS}
+
+[Un]lock file descriptor, or lock FILE, run PROG
+
+	-s	Shared lock
+	-x	Exclusive lock (default)
+	-u	Unlock FD
+	-n	Fail rather than wait
+flock -w UNSUPPORTED
+
+===== kernels features =====
+5.4.210-perf
+/tmp/recon-x16.sh: line 52: iptables: not found
+
+===== devices =====
+crw-r-----    1 radio    radio     245,   0 Jan  1  1970 at_mdm0
+crw-r-----    1 radio    radio     498,   0 Jan  1  1970 at_usb0
+crw-r-----    1 radio    radio     498,   3 Jan  1  1970 at_usb1
+crw-r-----    1 radio    radio     498,   1 Jan  1  1970 at_usb2
+crw-r-----    1 radio    radio     498,   2 Jan  1  1970 at_usb3
+crw-------    1 diag     root      238,   0 Jan  1  1970 byte-cntr
+crw-------    1 root     root       10, 124 Jan  1  1970 cpu_dma_latency
+dr-xr-x---    1 system   system           0 Jan  1  1970 ffs-diag
+crw-rw----    1 radio    radio     236,   0 Jan  1  1970 ipa
+crw-------    1 radio    radio     506,   0 Jan  1  1970 ipaIpv6CTTable
+crw-rw----    1 radio    radio     507,   0 Jan  1  1970 ipaNatTable
+crw-rw-rw-    1 radio    radio     235,   0 Jan  1  1970 ipa_adpl
+crw-------    1 radio    radio     504,   0 Jan  1  1970 ipa_lnx_stats_ioctl
+crw-rw-rw-    1 radio    radio     234,   0 Jan  1  1970 ipa_odl_ctl
+crw-------    1 root     root      505,   0 Jan  1  1970 ipa_tethering_bridge
+crw-rw-rw-    1 root     tty         5,   2 Oct 26 02:46 ptmx
+crw-------    1 root     root      511,   2 Jan  1  1970 ramdump_ipa_fws
+crw-------    1 root     root      511,   3 Jan  1  1970 ramdump_md_ipa_fws
+crw-------    1 radio    radio     245,   7 Jan  1  1970 smd10
+crw-------    1 root     root      245,   8 Jan  1  1970 smd11
+crw-------    1 root     root      245,   9 Jan  1  1970 smd21
+crw-------    1 root     root      245,  10 Jan  1  1970 smd22
+crw-------    1 root     root      245,  11 Jan  1  1970 smd38
+crw-------    1 radio    radio     245,   4 Jan  1  1970 smd7
+crw-rw-r--    1 radio    radio     245,   5 Jan  1  1970 smd8
+crw-------    1 radio    radio     245,   6 Jan  1  1970 smd9
+crw-r-----    1 radio    radio     245,   1 Jan  1  1970 smdcntl0
+crw-r-----    1 radio    radio     245,   2 Jan  1  1970 smdcntl1
+crw-------    1 radio    radio     245,   3 Jan  1  1970 smdcntl8
+crw-------    1 root     root      510,   1 Jan  1  1970 subsys_ipa_fws
+crw-rw-rw-    1 root     tty         5,   0 Jan  6  1980 tty
+crw-rw----    1 root     dialout   244,   0 Jan  1  1970 ttyEUD0
+crw-rw----    1 radio    radio     240,   0 Jan  6  1980 ttyGS0
+crw-rw----    1 root     dialout   243,   0 Jan  1  1970 ttyMSM0
+total 0
+drwxr-xr-x    2 radio    radio           40 Jan  1  1970 atfwd
+drwxr-xr-x    4 radio    radio          540 Jan  6  1980 data
+srw-rw-rw-    1 logd     logd             0 Jan  1  1970 logd
+srw-rw-rw-    1 logd     logd             0 Jan  1  1970 logdr
+s-w--w--w-    1 logd     logd             0 Jan  1  1970 logdw
+drwxr-xr-x    2 system   system          40 Jan  1  1970 qdma
+srw-rw----    1 system   system           0 Jan  6  1980 thermal-recv-client
+srw-rw-rw-    1 system   system           0 Jan  6  1980 thermal-recv-passive-client
+srw-rw-rw-    1 system   system           0 Jan  6  1980 thermal-send-client
+
+===== web stack =====
+--- what serves :80 ---
+pid=1207 exe=/bin/mini_httpd cmd=/bin/mini_httpd -C /tmp/mini_httpd.conf 
+
+===== AT entry point hunt =====
+-rwxrwxr-x    1 system   system        9732 Jan  5  2024 atcmd
+-rwxrwxr-x    1 system   system       30404 Jan  5  2024 atcmd_daemon
+-rwxrwxr-x    1 system   system       33860 Jan  5  2024 clat_prefix_detect
+-rwxr-xr-x    1 root     root         26040 Apr 10  2023 simcom_ftp
+-rwxr-xr-x    1 root     root         38428 Apr 10  2023 simcom_gnss
+-rwxr-xr-x    1 root     root         13716 Apr 10  2023 simcom_lwm2m
+-rwxr-xr-x    1 root     root         13712 Apr 10  2023 simcom_ns
+-rwxr-xr-x    1 root     root         75188 Apr 10  2023 simcom_rfs
+-rwxr-xr-x    1 root     root          5512 May  8  2023 simcom_sign
+
+===== modem / data path =====
+Inter-|   Receive                                                |  Transmit
+ face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
+rmnet_data0: 1229159101 1006336    0    0    0     0          0         0 381129788  504143    0    0    0     0       0          0
+rmnet_data3:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0
+erspan0:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0
+bridge0: 384112025  528692    0    0    0     0          0        12 1272507070 1039151    0    0    0     0       0          0
+  gre0:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0
+rmnet_data2:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0
+ip6tnl0:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0
+rmnet_data4:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0
+rmnet_data1:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0
+  sit0:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0
+rmnet_data5:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0
+ teql0:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0
+dummy0:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0
+    lo:    1708      25    0    0    0     0          0         0     1708      25    0    0    0     0       0          0
+  eth0: 392161005  528692    0    0    0     0          0       125 1272704636 1038979    0    0    0     0       0          0
+ip6gre0:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0
+rmnet_ipa0: 1237212449  248854    0    0    0     0          0         0 385162932  504143    0    0    0     0       0          0
+gretap0:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0
+total 52
+-rw-r--r--    1 root     root           732 Jan  6  1980 ATCMD_DAEMON.log
+-rw-r--r--    1 root     root             0 Jan  1  1970 CONFIGTOOLS.log
+-rw-r--r--    1 root     root          3916 Oct 26 01:49 DIALER.log
+-rw-r--r--    1 root     root             0 Jan  1  1970 EXE_DAEMON.log
+-rw-r--r--    1 root     root           601 Oct 26 01:49 FIREWALLTOOL.log
+-rw-r--r--    1 root     root             0 Jan  1  1970 FLOW_CONTROL.log
+-rw-r--r--    1 root     root          1712 Oct 26 01:49 LAN_MGR.log
+-rw-r--r--    1 root     root             0 Jan  1  1970 PARENT_CTRL.log
+-rw-r--r--    1 root     root           142 Jan  6  1980 TR069.log
+1980-01-06 04:01:00.751735 [syslog] [dialer] dialer_reset_state_machine: <<<<<Reset dialer state machine by (http_cgi) from state (7).<<<<<
+1980-01-06 04:01:00.986502 [syslog] [dialer] sunsea_dialer_get_module_version: [AT+CNVR=6860,0] module_identification:S2-10DCE
+1980-01-06 04:01:01.64509 [syslog] [dialer] sunsea_dialer_get_module_imei: check current IMEI file successful.
+1980-01-06 04:01:01.80140 [syslog] [dialer] sunsea_dialer_check_mac: lan Mac 98A942862176
+1980-01-06 04:01:01.80444 [syslog] [dialer] sunsea_dialer_check_mac: get lan mac successful:
+1980-01-06 04:01:01.92480 [syslog] [dialer] sunsea_dialer_check_mac: get wifi mac successful:5C46B0AC7096
+1980-01-06 04:01:01.92763 [syslog] [dialer] sunsea_dialer_check_mac: Wifi Mac 5C46B0AC7096
+1980-01-06 04:01:01.153386 [syslog] [dialer] sunsea_set_network_mode: mode_pref = 2
+
+1980-01-06 04:01:01.789089 [syslog] [dialer] sunsea_dialer_set_tel_dm_csca_event_handler: <<<<<set sms csca: +923330005150<<<<<
+
+1980-01-06 04:01:02.299502 [syslog] [dialer] sunsea_dialer_check_airplane_mode: <<<<<wait for Resident network<<<<<
+2026-10-26 01:49:48.698073 [syslog] [dialer] sunsea_roaming_update_handler: <<<<<reg successful.(data switch:1)<<<<<
+2026-10-26 01:49:48.704658 [syslog] [dialer] sunsea_dialer_create_data_connectoion: Try to setup PDU session[0] cid(6)...
+2026-10-26 01:49:48.758877 [syslog] [dialer] sunsea_dialer_create_data_connectoion: <<<<<Setup PDU RET:0.<<<<<
+2026-10-26 01:49:48.758999 [syslog] [dialer] sunsea_dialer_create_data_connectoion: <<<<<Setup PDU session[0]  cid(6) successful.<<<<<
+2026-10-26 01:49:48.991421 [syslog] [dialer] data_call_evt_cb: 
+>>>>> data_call_evt_cb profile[6]
+                           state[1]
+                           err[0]
+                           ifname[rmnet_data0]
+                           ipfamily[IPv4]
+
+2026-10-26 01:49:48.991565 [syslog] [dialer] data_call_evt_cb: <<<<< Datacall Connected!
+2026-10-26 01:49:48.991689 [syslog] [dialer] data_call_evt_cb: IPv4_addr[10.220.84.156]
+
+2026-10-26 01:49:50.922996 [syslog] [dialer] sunsea_dialer_config_lan_wan: bearer_id(6), wan_ip(10.220.84.156), subnet_mask(255.255.255.248)
+2026-10-26 01:49:50.923110 [syslog] [dialer] sunsea_dialer_config_lan_wan: main_dns_server(39.39.39.39), backup_dns_server(182.176.100.89), gw_str(10.220.84.157)
+2026-10-26 01:49:50.923181 [syslog] [dialer] sunsea_dialer_config_lan_wan: real_iface(rmnet_data0), apn(Ufone.internet), apn_mtu(1400), pdp_stack(0)
+2026-10-26 01:49:51.73394 [syslog] [dialer] sunsea_dialer_config_lan_wan: <<<<<dial successful.<<<<<
+
+===== qmi remnants from the PDC experiment =====
+total 0
+drwxr-xr-x    2 root     root           224 Sep  1 09:18 bin
+drwxr-xr-x    2 root     root           480 Sep  1 09:18 lib
+drwxr-xr-x    2 root     root           320 Sep  1 09:18 mbn
+/data/zlt-mbn-recovery/bin/qmicli
+
+===== config dirs =====
+total 308
+drwxr-xr-x    2 root     root           304 Apr 10  2023 adpl
+drwxr-xr-x    2 root     root           376 Apr 10  2023 data_iot
+-rw-rw-r--    1 root     root          6012 Apr 10  2023 ddclient.conf
+-rw-rw-r--    1 root     root             1 Oct 27  2025 dhcp_hosts
+
+===== done =====
+collect: /tmp/recon.txt

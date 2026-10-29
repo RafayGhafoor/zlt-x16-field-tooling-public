@@ -1,0 +1,38 @@
+#!/bin/sh
+# zlt-cpufreq -- pin the CPU frequency governor, because this box is a router and
+# not a phone: latency consistency matters more than heat.
+#
+# Measured on the X16 (2026-10-29): the vendor ships `ondemand`, and under this
+# workload it already sits at max frequency (1.8 GHz), so the win is small --
+# a fixed 4000-iteration loop ran 28.67 s under ondemand and 27.54 s under
+# performance (~4%). What it buys is the ramp-up ramp, not throughput.
+#
+# /sys does not survive a reboot, so this runs from StartTZApp (see install.sh).
+# Silent on success, loud on failure: a governor that silently did not apply is
+# worse than none, because the next reader assumes it did.
+set -u
+GOV=${GOV:-performance}
+LOG=/data/log/zlt-cpufreq.log
+mkdir -p /data/log 2>/dev/null
+
+echo "$(date '+%Y-%m-%d %H:%M:%S') zlt-cpufreq: requested $GOV" >> "$LOG" 2>/dev/null
+
+n=0
+for f in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
+    [ -w "$f" ] || continue
+    cur=$(cat "$f" 2>/dev/null)
+    [ "$cur" = "$GOV" ] && { n=$((n + 1)); continue; }
+    if echo "$GOV" > "$f" 2>/dev/null; then
+        n=$((n + 1))
+        echo "$(date '+%Y-%m-%d %H:%M:%S') zlt-cpufreq: $f $cur -> $GOV" >> "$LOG" 2>/dev/null
+    else
+        echo "$(date '+%Y-%m-%d %H:%M:%S') zlt-cpufreq: FAILED to set $f" >> "$LOG" 2>/dev/null
+    fi
+done
+
+if [ "$n" -eq 0 ]; then
+    echo "$(date '+%Y-%m-%d %H:%M:%S') zlt-cpufreq: no cpufreq governor files found" >> "$LOG" 2>/dev/null
+    exit 1
+fi
+echo "$(date '+%Y-%m-%d %H:%M:%S') zlt-cpufreq: $n cpu(s) at $GOV" >> "$LOG" 2>/dev/null
+exit 0

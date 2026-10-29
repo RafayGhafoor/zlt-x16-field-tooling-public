@@ -1,0 +1,36 @@
+[qrtr://3] Successfully got cell location info
+Intrafrequency LTE Info
+	UE In Idle: 'no'
+	PLMN: '41001'
+	Tracking Area Code: '55383'
+	Global Cell ID: '48466199'
+	EUTRA Absolute RF Channel Number: '250' (E-UTRA band 1: 2100)
+	Serving Cell ID: '104'
+	Cell [0]:
+		Physical Cell ID: '104'
+		RSRQ: '-11.0' dB
+		RSRP: '-77.9' dBm
+		RSSI: '-50.3' dBm
+	Cell [1]:
+		Physical Cell ID: '102'
+		RSRQ: '-14.1' dB
+		RSRP: '-81.0' dBm
+		RSSI: '-58.0' dBm
+	Cell [2]:
+		Physical Cell ID: '167'
+		RSRQ: '-20.0' dB
+		RSRP: '-88.7' dBm
+		RSSI: '-55.8' dBm
+	Cell [3]:
+		Physical Cell ID: '51'
+		RSRQ: '-18.5' dB
+		RSRP: '-85.4' dBm
+		RSSI: '-58.6' dBm
+Interfrequency LTE Info
+	UE In Idle: 'no'
+LTE Info Neighboring GSM
+	UE In Idle: 'no'
+LTE Info Neighboring WCDMA
+	UE In Idle: 'no'
+LTE Timing Advance: '13' us
+5GNR ARFCN: '509070'

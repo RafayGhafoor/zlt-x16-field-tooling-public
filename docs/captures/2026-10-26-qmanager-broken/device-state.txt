@@ -1,0 +1,40 @@
+Linux sdxlemur 5.4.210-perf #7 PREEMPT Fri Jan 5 14:02:11 CST 2024 armv7l GNU/Linux
+ 05:13:52 up 2 min,  load average: 3.13, 2.56, 1.08
+--- units ---
+active
+active
+active
+active
+--- AT ---
+atcmd_receive:
+Manufacturer: SIMCOM INCORPORATED
+Model: SIMCOM_SIM8260E
+Revision: V1.0.01
+IMEI: <imei-redacted>
++GCAP: +CGSM
+
+OK
+--- QENG neighbourcell (native) ---
+atcmd_receive:
++QENG:"neighbourcell intra","LTE",1312,256,-71,-939,-669,0,0,0,0,0,0
++QENG:"neighbourcell intra","LTE",1312,318,-155,-1012,-753,0,0,0,0,0,0
++QENG:"neighbourcell intra","LTE",1312,255,-172,-1039,-768,0,0,0,0,0,0
++QENG:"neighbourcell inter","LTE",150,502,-77,-988,-742,0,0,0,0,0
++QENG:"neighbourcell inter","LTE",150,209,-200,-1103,-805,0,0,0,0,0
++QENG:"neighbourcell inter","LTE",150,294,-139,-1044,-803,0,0,0,0,0
++QENG:"neighbourcell inter","LTE",3626,469,-84,-935,-712,0,0,0,0,0
++QENG:"neighbourcell inter","LTE",3626,474,-129,-971,-748,0,0,0,0,0
++QENG:"neighbourcell inter","LTE",3626,381,-115,-1079,-831,0,0,0,0,0
++QENG:"neighbourcell inter","LTE",3626,255,-149,-996,-758,0,0,0,0,0
++QENG:"neighbourcell inter","LTE",3626,408,-188,-1073,-791,0,0,0,0,0
++QENG:"neighbourcell inter","LTE",3626,209,-160,-1007,-758,0,0,0,0,0
+OK
+--- via atcli shim ---
++QENG: "servingcell","CONNECT","LTE","FDD",410,03,CA52865,256,1312,3,5,5,29DD,-93,-6,-80,17
+
+OK
+--- QNWLOCK ---
+atcmd_receive:
+ERROR
+--- speedtest ---
+NOT_INSTALLED

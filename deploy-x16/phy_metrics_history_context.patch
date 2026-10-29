@@ -1,0 +1,26 @@
+--- a/phy_metrics.sh
++++ b/phy_metrics.sh
+@@ -533,6 +533,23 @@
+     return 0
+ }
+ 
++# A durable history row can still be useful when this platform has no ubus/
++# modemd PHY source: the poller context carries real serving-cell signal and
++# identity from its Tier-1 cache. Do not write an all-null row, but do not make
++# optional PHY readers a prerequisite for the basic cell history either.
++qm_phy_archive_has_source() {
++    local md="$1" at="$2" ctx="$3"
++    if [ "$md" != "{}" ] || [ "$at" != "{}" ]; then
++        return 0
++    fi
++    printf '%s' "$ctx" | "$(_qm_phy_jq)" -e '
++        type == "object" and
++        (.lte_rsrp != null or .lte_rsrq != null or .lte_rssi != null or
++         .lte_sinr != null or .lte_pci != null or .lte_earfcn != null or
++         .nr_rsrp != null or .nr_pci != null or .nr_arfcn != null)
++    ' >/dev/null 2>&1
++}
++
+ # =============================================================================
+ # DURABLE ARCHIVE — one CSV row per minute, /usrdata/qmanager/metrics
+ # =============================================================================

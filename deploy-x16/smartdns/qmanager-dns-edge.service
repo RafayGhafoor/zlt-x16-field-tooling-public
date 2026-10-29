@@ -1,0 +1,43 @@
+# /etc/systemd/system/qmanager-dns-edge.service
+#
+# Regenerates the Google-family edge-selection block from MEASURED provider
+# quality (docs/specs/dns-edge-selection.md in the QManager tree). Runs
+# qmanager_dns_apply apply-edge, which:
+#   - probes every upstream in the pool for the probe domains,
+#   - keeps only those whose answers ping <= THRESHOLD_MS (default 150),
+#   - rewrites the `# BEGIN QMANAGER-EDGE v1` block of the config,
+#   - validates the result on a THROWAWAY PORT (never `smartdns test -c`, which
+#     validates nothing on 0.13.1 — measured),
+#   - swaps + restarts the resolver, and rolls back on failure.
+#
+# Why measured instead of a hand-written member list: on the O5A, Cloudflare and
+# 1.1.1.1 handed out Google's ~340 ms edge while dns.google/Quad9/OpenDNS handed
+# out the ~65 ms one, and 0.13.1's FastestResponse made the outcome a race. A
+# hand list rots; this self-heals. The 150 ms cut is not delicate — the two
+# classes measured 330-350 ms and 55-80 ms. THAT WAS THE O5A POOL: this unit has
+# its own latency map, so the first refresh after install is also the first
+# measurement of it (see the README's "re-measure" note).
+#
+# LAN_RESOLVER: qmanager_dns_apply defaults to 192.168.0.1 (the O5A's LAN
+# address) and uses it only for a post-apply diagnostic. The X16 is 192.168.3.1.
+
+[Unit]
+Description=QManager DNS edge selection refresh (measure providers, regenerate group)
+After=qmanager-dns.service
+# A stopped resolver has nothing to refresh; do not fail the timer when the
+# operator has switched SmartDNS off.
+ConditionPathExists=/data/qmanager/bin/smartdns
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+# jq lives in /data/qmanager/bin (the shim), NOT in the PATH a timer inherits.
+# Measured on the O5A: without this every JSON build in the helper fails and the
+# unit still exits 0, which reads as "nothing to do".
+Environment=PATH=/data/qmanager/bin:/usr/bin:/bin:/sbin:/usr/sbin
+Environment=LAN_RESOLVER=192.168.3.1
+ExecStart=/data/qmanager/bin/qmanager_dns_apply apply-edge
+StandardOutput=null
+StandardError=null
+TimeoutStartSec=180
+Nice=10
